@@ -154,19 +154,19 @@ function buildHeroCones(heroes, palette, newIds = null) {
 
   for (let i = 0; i < heroes.length; i++) {
     const d = heroes[i]
-    // Anchor cone base just above the surface
-    const pos = polar2cart(d.lat, d.lng, 0.005)
+    const isNew = newIds && newIds.has(d.id)
+    // New arrivals start in the sky (alt=1.5, full scale); raf animates inward.
+    // Stable heroes anchor just above the surface.
+    const startAlt = isNew ? 1.5 : 0.005
+    const pos = polar2cart(d.lat, d.lng, startAlt)
     const dir = pos.clone().normalize()
     tmpQuat.setFromUnitVectors(Y_AXIS, dir)
 
     const height = massToPillarHeight(d.mass)
     const radius = CLASS_RADIUS[d.klass] ?? 0.24
 
-    // If this hero just entered the visible window, start at scale.y=0 so
-    // the raf loop can animate it rising. Otherwise, full final scale.
-    const isNew = newIds && newIds.has(d.id)
-    const yScale = isNew ? 0 : height
-    tmpScale.set(radius, yScale, radius)
+    // Full scale always — falling visual comes from altitude, not size
+    tmpScale.set(radius, height, radius)
     tmpMat.compose(pos, tmpQuat, tmpScale)
     mesh.setMatrixAt(i, tmpMat)
 
@@ -332,7 +332,7 @@ const GLOBE_TEX = {
  */
 const PALETTES = {
   browse: {
-    name: 'Browse',
+    name: 'Atlas',
     sub: 'View the world · natural Earth',
     globeImageUrl: GLOBE_TEX.day,
     bumpImageUrl: GLOBE_TEX.bumpmap,
@@ -362,7 +362,7 @@ const PALETTES = {
   },
 
   locate: {
-    name: 'Locate',
+    name: 'Sextant',
     sub: 'High contrast · find a specimen',
     globeImageUrl: GLOBE_TEX.blackMarble,
     bumpImageUrl: GLOBE_TEX.bumpmap,
@@ -392,7 +392,7 @@ const PALETTES = {
   },
 
   archive: {
-    name: 'Archive',
+    name: 'Folio',
     sub: 'Sepia · long-form reading',
     globeImageUrl: GLOBE_TEX.blackMarble,
     bumpImageUrl: GLOBE_TEX.bumpmap,
@@ -883,16 +883,28 @@ export default function App() {
     return meteorites.filter((m) => m.year <= year && activeClasses[m.klass])
   }, [meteorites, year, activeClasses])
 
-  // Stratified split — Designer's Option A:
-  //   hero = top HERO_COUNT by mass (cylinder + warm-white + bloom magnets)
-  //   mid  = everything else (soft additive sprite particles)
+  // Global hero list — top HERO_COUNT by mass over the WHOLE catalog (not
+  // year-filtered). These are the "named monuments" — Hoba, Cape York etc.
+  // Hero membership stays stable across year scrubs; visibility is gated
+  // separately so each hero appears at its actual fall year.
+  const globalHeroes = useMemo(() => {
+    if (!meteorites) return []
+    return [...meteorites]
+      .sort((a, b) => (b.mass || 0) - (a.mass || 0))
+      .slice(0, HERO_COUNT)
+  }, [meteorites])
+
+  // Stratified split:
+  //   hero = global top HERO_COUNT, year-gated and class-filtered
+  //   mid  = all other visible (year-filtered) meteorites
   const { heroPoints, midPoints } = useMemo(() => {
-    const sorted = [...visiblePoints].sort((a, b) => (b.mass || 0) - (a.mass || 0))
-    const hero = sorted.slice(0, HERO_COUNT)
-    const heroIds = new Set(hero.map((m) => m.id))
-    const mid = visiblePoints.filter((m) => !heroIds.has(m.id))
-    return { heroPoints: hero, midPoints: mid }
-  }, [visiblePoints])
+    const heroSet = new Set(globalHeroes.map((m) => m.id))
+    const heroVisible = globalHeroes.filter(
+      (m) => m.year <= year && activeClasses[m.klass]
+    )
+    const mid = visiblePoints.filter((m) => !heroSet.has(m.id))
+    return { heroPoints: heroVisible, midPoints: mid }
+  }, [globalHeroes, visiblePoints, year, activeClasses])
 
   // Density data for the surface heatmap base layer.
   // KDE is O(N × surface tiles × bandwidth²) — 32k points hangs the page.
@@ -931,46 +943,87 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [heroPoints, paletteName, fwm])
 
-  // Hero fall-in animation state. When new meteorites enter via year-scrub-forward,
-  // their cones start at scale.y=0 and rise to full height over 700ms (ease-out
-  // cubic). Mid sprites also flash a brief impact-ring (TODO: 3.A.3).
+  // Hero fall-in animation state — per-instance start times so multiple
+  // arrivals during meteor-rain don't reset each other.
   const heroMeshRef = useRef(null)
-  const fallAnimRef = useRef({ prevIds: new Set(), animating: new Set(), startTime: 0, heroes: [] })
+  const fallAnimRef = useRef({
+    prevIds: new Set(),
+    inFlight: new Map(),  // id → spawnTime
+    heroes: [],
+    flashRings: [],
+  })
 
-  // Single raf loop drives all in-progress fall animations.
+  // Force ringsData re-render when transient flash rings expire
+  const [flashTick, forceFlashTick] = useState(0)
+
+  // Single raf loop. Each in-flight hero falls from sky (altitude 1.5) to the
+  // surface (0.005) over FALL_MS, easing out so it slows on approach.
+  // Per-instance timing — multiple arrivals can stack mid-flight.
   useEffect(() => {
     let raf = 0
     const Y_AXIS = new THREE.Vector3(0, 1, 0)
     const tmpMat = new THREE.Matrix4()
     const tmpQuat = new THREE.Quaternion()
     const tmpScale = new THREE.Vector3()
-    const FALL_MS = 700
+    const FALL_MS = 1500
+    const SKY_ALT = 1.5     // 1.5 globe radii above center
+    const GROUND_ALT = 0.005
 
     const tick = () => {
       raf = requestAnimationFrame(tick)
       const anim = fallAnimRef.current
       const mesh = heroMeshRef.current
-      if (!mesh || anim.animating.size === 0) return
-      const elapsed = performance.now() - anim.startTime
-      const t = Math.min(1, elapsed / FALL_MS)
-      const eased = 1 - Math.pow(1 - t, 3) // ease-out cubic
-      for (let i = 0; i < anim.heroes.length; i++) {
-        const d = anim.heroes[i]
-        if (!anim.animating.has(d.id)) continue
-        const pos = polar2cart(d.lat, d.lng, 0.005)
+      if (!mesh || anim.inFlight.size === 0) return
+      const now = performance.now()
+      const heroes = anim.heroes
+      const completedIds = []
+      anim.inFlight.forEach((spawnTime, id) => {
+        const t = Math.min(1, (now - spawnTime) / FALL_MS)
+        // ease-out cubic — fast fall, slow approach
+        const eased = 1 - Math.pow(1 - t, 3)
+        // current altitude lerps from SKY → GROUND
+        const alt = SKY_ALT + (GROUND_ALT - SKY_ALT) * eased
+        // find this hero's current instance index
+        const idx = heroes.findIndex((h) => h.id === id)
+        if (idx < 0) {
+          completedIds.push(id)
+          return
+        }
+        const d = heroes[idx]
+        const pos = polar2cart(d.lat, d.lng, alt)
         const dir = pos.clone().normalize()
         tmpQuat.setFromUnitVectors(Y_AXIS, dir)
         const finalHeight = massToPillarHeight(d.mass)
         const radius = CLASS_RADIUS[d.klass] ?? 0.24
-        tmpScale.set(radius, finalHeight * eased, radius)
+        // slight final-frame overshoot squish — landing pop
+        const yScale = t > 0.95 ? finalHeight * (1 + (1 - t) * 4 * 0.06) : finalHeight
+        tmpScale.set(radius, yScale, radius)
         tmpMat.compose(pos, tmpQuat, tmpScale)
-        mesh.setMatrixAt(i, tmpMat)
-      }
+        mesh.setMatrixAt(idx, tmpMat)
+        if (t >= 1) completedIds.push(id)
+      })
       mesh.instanceMatrix.needsUpdate = true
-      if (t >= 1) anim.animating = new Set() // animation complete
+      for (const id of completedIds) anim.inFlight.delete(id)
+      if (completedIds.length > 0) forceFlashTick((n) => n + 1)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
+  }, [])
+
+  // Periodically prune expired flash rings (cheap — ~3/sec)
+  useEffect(() => {
+    const id = setInterval(() => {
+      const now = performance.now()
+      const before = fallAnimRef.current.flashRings?.length || 0
+      if (!before) return
+      fallAnimRef.current.flashRings = fallAnimRef.current.flashRings.filter(
+        (r) => r.expireAt > now
+      )
+      if (fallAnimRef.current.flashRings.length !== before) {
+        forceFlashTick((n) => n + 1)
+      }
+    }, 300)
+    return () => clearInterval(id)
   }, [])
 
   // Singleton sprite glow texture
@@ -1299,30 +1352,48 @@ export default function App() {
 
   const toggleClass = (k) => setActiveClasses((a) => ({ ...a, [k]: !a[k] }))
 
-  // Rings layer: during FWM = accumulated witness marks; otherwise = selected impact ripple.
+  // Rings layer: during FWM = accumulated witness marks; otherwise = selected
+  // impact ripple PLUS any transient hero-arrival flash rings.
   const ringsData = useMemo(() => {
     if (fwm === 'active' || fwm === 'closing') {
       const upto = fwm === 'closing' ? FIRST_WITNESSES.length : Math.min(fwmIdx + 1, FIRST_WITNESSES.length)
       return FIRST_WITNESSES.slice(0, upto).map((w, i) => ({
         lat: w.lat, lng: w.lng,
         maxR: 5.5,
-        propagationSpeed: 1.4, // outward = arrival witness ring
+        propagationSpeed: 1.4,
         repeatPeriod: 2400,
-        // The most-recent witness ring pulses brighter
         intensity: i === upto - 1 ? 1.0 : 0.55,
       }))
     }
+    const out = []
     if (selected) {
-      return [{
+      out.push({
         lat: selected.lat, lng: selected.lng,
         maxR: 6,
         propagationSpeed: -3,
         repeatPeriod: 2400,
         intensity: 1.0,
-      }]
+      })
     }
-    return []
-  }, [selected, fwm, fwmIdx])
+    // hero-arrival flash rings — appear AT impact (after the fall), fade out
+    const flashes = fallAnimRef.current?.flashRings || []
+    const now = performance.now()
+    for (const f of flashes) {
+      // skip rings that haven't impacted yet
+      if (now < f.impactAt) continue
+      const remaining = f.expireAt - now
+      if (remaining > 0) {
+        out.push({
+          lat: f.lat, lng: f.lng,
+          maxR: 4,
+          propagationSpeed: 4,
+          repeatPeriod: 9999,
+          intensity: Math.min(1, remaining / 1500),
+        })
+      }
+    }
+    return out
+  }, [selected, fwm, fwmIdx, flashTick])
 
   const fwmActive = fwm === 'active' || fwm === 'closing'
 
@@ -1384,22 +1455,40 @@ export default function App() {
              4-dim encoding: height=mass, radius=class, color=fall, bloom=auto */
           customLayerData={heroConeData}
           customThreeObject={(d) => {
-            // Detect newly-entered heroes (year scrub forward) and mark them
-            // for the fall-in raf loop.
+            // Detect newly-entered heroes (year scrub forward).
             const prev = fallAnimRef.current.prevIds
             const newIds = new Set()
             for (const h of d.heroes) {
               if (!prev.has(h.id)) newIds.add(h.id)
             }
             const isFirstBuild = prev.size === 0
-            // Only animate if this isn't the first build and there are new heroes.
             const animateIds = (isFirstBuild || newIds.size === 0) ? null : newIds
-            if (animateIds) {
-              fallAnimRef.current.animating = new Set(animateIds)
-              fallAnimRef.current.startTime = performance.now()
-              fallAnimRef.current.heroes = d.heroes
-            }
+
+            // Always update heroes snapshot — raf loop reads .heroes per frame.
+            fallAnimRef.current.heroes = d.heroes
             fallAnimRef.current.prevIds = new Set(d.heroes.map((h) => h.id))
+
+            if (animateIds) {
+              const now = performance.now()
+              // Register each new arrival with its own spawn time (per-instance).
+              for (const id of animateIds) {
+                fallAnimRef.current.inFlight.set(id, now)
+              }
+              // Schedule flash ring at IMPACT moment (after FALL_MS), not now.
+              const expireAt = now + 1500 + 1500 // impact at +1500, fade to +3000
+              const impactAt = now + 1500
+              const flashes = []
+              for (const h of d.heroes) {
+                if (animateIds.has(h.id)) {
+                  flashes.push({ lat: h.lat, lng: h.lng, impactAt, expireAt })
+                }
+              }
+              fallAnimRef.current.flashRings = [
+                ...(fallAnimRef.current.flashRings || []).filter(r => r.expireAt > now),
+                ...flashes,
+              ]
+              forceFlashTick((n) => n + 1)
+            }
 
             const mesh = buildHeroCones(d.heroes, palette, animateIds)
             heroMeshRef.current = mesh
@@ -1413,7 +1502,7 @@ export default function App() {
           particleLat="lat"
           particleLng="lng"
           particleAltitude={(d) => Math.max(0.005, massToAltitude(d.mass) * MAX_ALT_R * 0.4)}
-          particlesSize={(set, idx) => idx === 0 ? 0.82 : 1.05}
+          particlesSize={(set, idx) => idx === 0 ? 1.6 : 1.95}
           particlesSizeAttenuation={true}
           particlesTexture={glowTexture}
           particlesColor={(set, idx) =>
@@ -1508,18 +1597,16 @@ export default function App() {
         </div>
       </header>
 
-      {/* MODE SWITCHER — permanent user preference, top-left under search */}
+      {/* MODE SWITCHER — names only, no explanation. Let users discover. */}
       <div className="mode-switcher">
-        <div className="ms-label">Mode</div>
         {Object.entries(PALETTES).map(([key, p]) => (
           <button
             key={key}
             className={`ms-btn ${paletteName === key ? 'on' : ''}`}
             onClick={() => setPaletteName(key)}
-            title={p.sub}
+            title={p.sub /* tooltip only — no inline explainer */}
           >
             <span className="ms-name">{p.name}</span>
-            <span className="ms-sub">{p.sub}</span>
           </button>
         ))}
       </div>

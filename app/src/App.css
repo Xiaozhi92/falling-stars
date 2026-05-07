@@ -6,7 +6,7 @@
   overflow: hidden;
 }
 
-/* ------- MODE SWITCHER (permanent user preference, top-left) ------- */
+/* ------- MODE SWITCHER (single line of names, archive-elegant) ------- */
 .mode-switcher {
   position: absolute;
   top: 72px;
@@ -14,70 +14,52 @@
   z-index: 7;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 6px;
-  border: 1px solid var(--rule);
-  background: rgba(11, 14, 24, 0.65);
-  backdrop-filter: blur(3px);
-  font-family: var(--mono);
+  gap: 6px;
+  padding: 0;
+  background: transparent;
   pointer-events: auto;
-  border-radius: 0;
-}
-
-.ms-label {
-  font-size: 9px;
-  letter-spacing: 0.28em;
-  text-transform: uppercase;
-  color: var(--paper-faint);
-  padding: 0 10px 0 6px;
-  border-right: 1px solid var(--rule);
-  margin-right: 4px;
-  align-self: stretch;
-  display: flex;
-  align-items: center;
 }
 
 .ms-btn {
   display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  text-align: left;
-  padding: 5px 12px;
+  align-items: center;
+  text-align: center;
+  padding: 4px 14px;
   border: 1px solid transparent;
   background: transparent;
-  color: var(--paper-dim);
+  color: var(--paper-faint);
   cursor: pointer;
-  font-family: var(--mono);
-  transition: color 0.15s ease-out, border-color 0.15s ease-out, background 0.15s ease-out;
-  min-width: 96px;
+  transition: color 0.18s ease-out, border-color 0.18s ease-out;
+  position: relative;
 }
+.ms-btn::after {
+  content: "·";
+  position: absolute;
+  right: -3px;
+  color: var(--paper-faint);
+  opacity: 0.4;
+}
+.ms-btn:last-child::after { display: none; }
 .ms-btn:hover {
-  color: var(--paper);
-  border-color: var(--rule);
+  color: var(--paper-dim);
 }
 .ms-btn.on {
   color: var(--paper);
-  border-color: var(--amber);
-  background: rgba(212, 168, 95, 0.08);
+  border-color: transparent;
 }
 
 .ms-name {
   font-family: var(--display);
   font-style: italic;
-  font-size: 14px;
-  letter-spacing: 0.02em;
+  font-size: 16px;
+  letter-spacing: 0.04em;
   font-weight: 500;
 }
-
-.ms-sub {
-  font-size: 9px;
-  letter-spacing: 0.10em;
-  color: var(--paper-faint);
-  margin-top: 1px;
-  text-transform: uppercase;
-}
-.ms-btn.on .ms-sub {
-  color: var(--paper-dim);
+.ms-btn.on .ms-name {
+  text-decoration: underline;
+  text-decoration-color: var(--amber);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 5px;
 }
 
 /* Three layers of slow-drifting amber dust — Designer's "archive dust" not "stars".
