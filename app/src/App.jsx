@@ -62,24 +62,24 @@ const POINT_COLORS = Object.fromEntries(
   CLASS_ORDER.map((k) => [k, CLASS_COLORS[k]])
 )
 
-const HERO_COUNT = 50 // top mass meteorites get plinth pillar + bloom
-const HERO_COLOR = '#F4ECD8'
+// Plan D-2: top 1% by mass get a thin upright "beacon" line — a quiet flag
+// marking the largest specimens without the old white-candle drama. Was 50
+// (felt cherry-picked); 320 (~1% of 31,956) reads as a populated tier.
+const BEACON_COUNT = 320
+const BEACON_COLOR = '#F4ECD8'
 const PARTICLE_AMBER = '#d4a85f'
 
 /* ----- 4-dim encoding constants (Designer spec) -----
  * radius by class — 6 discrete tiers. Rare classes get more visual presence
  * to compensate for their statistical sparseness.
  */
-const CLASS_RADIUS = {
-  'planetary': 0.42,        // rarest, privileged
-  'stony-iron': 0.36,       // pallasites: rare and beautiful
-  'iron': 0.32,             // dense material → thicker
-  'carbonaceous': 0.27,
-  'achondrite': 0.24,
-  'ordinary-chondrite': 0.20, // most common → thinnest
-}
+// Plan D-2: beacon geometry = thin cylinder, NOT a truncated cone.
+// Motion designer: "thin to 1-2px, height cut to 1/3, no glow, just a quiet
+// flag." Width is uniform across classes (was per-class diameter in old hero
+// cones — that contributed to the white-candle silhouette).
+const BEACON_RADIUS = 0.07 // ~hairline at default zoom
 
-const MAX_PILLAR_HEIGHT = 8.0 // in three-globe units (R=100), so 8% radius
+const MAX_PILLAR_HEIGHT = 3.5 // was 8.0; cut to ~44% per motion-designer spec.
 
 // Mass → height with shaped log curve (steeper toward Hoba/Cape York)
 function massToPillarHeight(mass) {
@@ -117,31 +117,34 @@ function polar2cart(lat, lng, alt = 0) {
  * window (e.g. via year scrub forward). Their scale.y starts at 0 so the
  * raf loop in App can animate them rising from the surface (fall-in).
  */
-function buildHeroCones(heroes, palette, newIds = null) {
-  // truncated cone primitive — wide base, narrow top
+function buildBeacons(heroes, palette, newIds = null) {
+  // Plan D-2: thin uniform cylinder — a quiet flag, not a candle.
+  // Width uniform across classes (was per-class). Color by fall, mass→height.
   const geom = new THREE.CylinderGeometry(
-    0.45,  /* radiusTop */
-    1.00,  /* radiusBottom */
-    1.0,   /* height — will be scaled per instance */
-    14,    /* radial segments — smooth-enough silhouette */
-    1,     /* height segments */
-    false  /* open-ended? false = capped */
+    BEACON_RADIUS,  /* top radius — same as bottom for clean line */
+    BEACON_RADIUS,  /* bottom radius */
+    1.0,            /* height — scaled per instance */
+    8,              /* radial segments — fewer needed for hairline */
+    1,
+    false
   )
-  // Shift so the base sits at local y=0 (top at y=1).
-  geom.translate(0, 0.5, 0)
+  geom.translate(0, 0.5, 0) // base at local y=0
 
-  // MeshStandardMaterial respects per-instance .color via instanceColor attribute,
-  // and bright fragments will trigger UnrealBloomPass when bloom is on.
+  // MeshStandardMaterial — drop emissive almost entirely. Motion-designer
+  // mandate: "no glow, just a quiet pure-color marker". A hint of emissive
+  // keeps it visible on dark globe but well below bloom threshold.
+  const fellHex = palette.heroColor || BEACON_COLOR
   const mat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
-    roughness: 0.55,
-    metalness: 0.10,
-    emissive: 0x0,
+    roughness: 0.7,
+    metalness: 0.05,
+    emissive: new THREE.Color(fellHex),
+    emissiveIntensity: palette.bloomEnabled === false ? 0.15 : 0.45,
   })
 
   const mesh = new THREE.InstancedMesh(geom, mat, heroes.length)
   mesh.frustumCulled = false
-  mesh.userData.heroes = heroes // for lookup if needed
+  mesh.userData.beacons = heroes
 
   const Y_AXIS = new THREE.Vector3(0, 1, 0)
   const tmpQuat = new THREE.Quaternion()
@@ -149,28 +152,26 @@ function buildHeroCones(heroes, palette, newIds = null) {
   const tmpScale = new THREE.Vector3()
   const tmpColor = new THREE.Color()
 
-  const fellHex = palette.heroColor || '#F4ECD8'
   const foundColor = deriveFoundColor(fellHex)
 
   for (let i = 0; i < heroes.length; i++) {
     const d = heroes[i]
     const isNew = newIds && newIds.has(d.id)
-    // New arrivals start in the sky (alt=1.5, full scale); raf animates inward.
-    // Stable heroes anchor just above the surface.
     const startAlt = isNew ? 1.5 : 0.005
     const pos = polar2cart(d.lat, d.lng, startAlt)
     const dir = pos.clone().normalize()
     tmpQuat.setFromUnitVectors(Y_AXIS, dir)
 
     const height = massToPillarHeight(d.mass)
-    const radius = CLASS_RADIUS[d.klass] ?? 0.24
-
-    // Full scale always — falling visual comes from altitude, not size
-    tmpScale.set(radius, height, radius)
+    tmpScale.set(BEACON_RADIUS, height, BEACON_RADIUS)
+    // Note: BEACON_RADIUS already in geometry; instance scale stretches X/Z by 1
+    // so width stays uniform. Apply just height here.
+    tmpScale.set(1, height, 1)
     tmpMat.compose(pos, tmpQuat, tmpScale)
     mesh.setMatrixAt(i, tmpMat)
 
-    // 4-dim encoding: COLOR by fall — witnessed glows, found is dim
+    // Color: Fell = bright, Found = dim. Mass already in height; class already
+    // implied by the imprint underneath.
     if (d.fall === 'Fell') {
       tmpColor.set(fellHex)
     } else {
@@ -183,23 +184,220 @@ function buildHeroCones(heroes, palette, newIds = null) {
   return mesh
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// PLAN D — 32k crater InstancedMesh (replaces particles layer)
+// "Stardust ground truth": each meteorite is a flat circular print on the
+// globe surface, oriented tangent to the sphere. Per-instance:
+//   • position = lat,lng → 3D
+//   • scale (radius) = log(mass)
+//   • color = class
+//   • phase = random offset for breathing
+// Shader does soft radial alpha + per-instance breathing (±7% over ~5s).
+// All 31,956 in ONE draw call, single material.
+// ─────────────────────────────────────────────────────────────────────────
+function massToCraterRadius(mass) {
+  // log scale across 6+ orders of magnitude. Min 0.45 (chondrite),
+  // max 2.8 (Hoba 60-tonne territory). Globe radius = 100, so 1 = 1%.
+  if (!mass || mass <= 0) return 0.45
+  const t = Math.min(1, Math.log10(mass + 1) / 7.8)
+  return 0.45 + 2.35 * t
+}
+
+// Three.js auto-declares `instanceMatrix` and `instanceColor` when an
+// InstancedMesh has those buffers set, even for ShaderMaterial. Custom
+// per-instance attributes (aPhase, aSizeNorm, aFell) need explicit declaration.
+const CRATER_VERT = `
+  attribute float aPhase;
+  attribute float aSizeNorm;
+  attribute float aFell;
+  varying vec2 vUv;
+  varying vec3 vColor;
+  varying float vPhase;
+  varying float vSizeNorm;
+  varying float vFell;
+  void main() {
+    vUv = uv;
+    #ifdef USE_INSTANCING_COLOR
+      vColor = instanceColor;
+    #else
+      vColor = vec3(1.0);
+    #endif
+    vPhase = aPhase;
+    vSizeNorm = aSizeNorm;
+    vFell = aFell;
+    gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+  }
+`
+
+const CRATER_FRAG = `
+  varying vec2 vUv;
+  varying vec3 vColor;
+  varying float vPhase;
+  varying float vSizeNorm;
+  varying float vFell;
+  uniform float uTime;
+  uniform float uBreathPeriod;
+  uniform float uFellPeriod;
+  uniform float uOpacity;
+  void main() {
+    float d = length(vUv - 0.5) * 2.0; // 0 center, 1 edge
+    if (d > 1.0) discard;
+    // Filled disc with soft edge — reads as a "print" on the globe surface.
+    float alpha = smoothstep(1.0, 0.55, d);
+    float core = smoothstep(0.55, 0.0, d) * 0.35;
+    // Size-graded breathing (8s "slow tide"):
+    //   small imprints  → ±2%  "almost still"
+    //   large imprints  → ±8%  "tidal"
+    float amp = mix(0.02, 0.08, vSizeNorm);
+    float breath = 1.0 + amp * sin(uTime * 6.2831853 / uBreathPeriod + vPhase * 6.2831853);
+    // Plan D-3: Fell witness pulse — Fell specimens (vFell=1) get an extra
+    // slow pulse on a coprime period (13s vs 8s breath) so they don't sync up
+    // and create visual beating. This is the "被见证 = 会动" thesis: Found
+    // specimens silently breathe; Fell specimens have a second heartbeat that
+    // brightens them and adds a faint white halo.
+    float fellPulse = sin(uTime * 6.2831853 / uFellPeriod + vPhase * 6.2831853 * 0.7);
+    float fellGlow = vFell * (0.5 + 0.5 * fellPulse) * 0.55; // 0..0.55 amplitude
+    vec3 col = vColor + vColor * core + vec3(fellGlow * 0.45);
+    float fellAlphaBoost = 1.0 + vFell * 0.18 * (0.5 + 0.5 * fellPulse);
+    gl_FragColor = vec4(col, alpha * uOpacity * breath * fellAlphaBoost);
+  }
+`
+
+function buildImprintMesh(meteorites) {
+  const geom = new THREE.CircleGeometry(1, 14)
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uBreathPeriod: { value: 8.0 },   // 8s slow tide (motion-designer note)
+      uFellPeriod: { value: 13.0 },    // coprime to 8s — no visual beating
+      uOpacity: { value: 0.85 },
+    },
+    vertexShader: CRATER_VERT,
+    fragmentShader: CRATER_FRAG,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.NormalBlending,
+  })
+
+  const mesh = new THREE.InstancedMesh(geom, mat, meteorites.length)
+  mesh.frustumCulled = false
+  mesh.userData.imprintMaterial = mat
+  mesh.userData.meteorites = meteorites
+
+  const Z_AXIS = new THREE.Vector3(0, 0, 1)
+  const tmpQuat = new THREE.Quaternion()
+  const tmpMat = new THREE.Matrix4()
+  const tmpScale = new THREE.Vector3()
+  const tmpColor = new THREE.Color()
+  const phaseAttr = new Float32Array(meteorites.length)
+  const sizeAttr = new Float32Array(meteorites.length)
+  const fellAttr = new Float32Array(meteorites.length)
+  const R_MIN = 0.45, R_MAX = 2.80 // matches massToCraterRadius bounds
+
+  for (let i = 0; i < meteorites.length; i++) {
+    const m = meteorites[i]
+    const radius = massToCraterRadius(m.mass)
+    // Sit just above the surface — small lift prevents z-fighting with globe.
+    const pos = polar2cart(m.lat, m.lng, 0.003)
+    const dir = pos.clone().normalize()
+    tmpQuat.setFromUnitVectors(Z_AXIS, dir)
+    tmpScale.set(radius, radius, 1)
+    tmpMat.compose(pos, tmpQuat, tmpScale)
+    mesh.setMatrixAt(i, tmpMat)
+
+    const hex = CLASS_RENDER_COLOR[m.klass] || CLASS_RENDER_COLOR['ordinary-chondrite']
+    tmpColor.set(hex)
+    mesh.setColorAt(i, tmpColor)
+
+    phaseAttr[i] = Math.random()
+    // Normalized size 0..1 — drives breath amplitude (small=±2%, large=±8%)
+    sizeAttr[i] = Math.max(0, Math.min(1, (radius - R_MIN) / (R_MAX - R_MIN)))
+    // Fell flag — drives the witness pulse in shader. 1.0 = witnessed fall.
+    fellAttr[i] = m.fall === 'Fell' ? 1.0 : 0.0
+  }
+  mesh.instanceMatrix.needsUpdate = true
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+  geom.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phaseAttr, 1))
+  geom.setAttribute('aSizeNorm', new THREE.InstancedBufferAttribute(sizeAttr, 1))
+  geom.setAttribute('aFell', new THREE.InstancedBufferAttribute(fellAttr, 1))
+
+  return mesh
+}
+
 // Build a soft radial-gradient sprite texture used for the mid-tier glow points.
 // Center cream, fading through amber to transparent. Additive-blended.
-function makeGlowTexture() {
+function makeGlowTexture(hex = '#FFFFFF', tier = 'mid') {
+  // P0.2 v2 — bake class color + tier-specific gradient into the texture.
+  // Three tiers per the 3-expert "stardust vs starlight" convergence:
+  //   - 'faint' : chondrite carpet — flat dim, no hot core
+  //   - 'mid'   : iron / carb / achon — soft hot core, moderate falloff
+  //   - 'rare'  : stony-iron / planetary — bright cream core + outer halo
   const size = 128
   const canvas = document.createElement('canvas')
   canvas.width = canvas.height = size
   const ctx = canvas.getContext('2d')
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  // Brighten center toward white for bloom hot core
+  const blend = (c, amt) => Math.min(255, c + (255 - c) * amt) | 0
+
   const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
-  grad.addColorStop(0.0, 'rgba(248, 234, 200, 1.0)')
-  grad.addColorStop(0.18, 'rgba(232, 180, 105, 0.85)')
-  grad.addColorStop(0.45, 'rgba(212, 168, 95, 0.30)')
-  grad.addColorStop(1.0, 'rgba(212, 168, 95, 0.0)')
+
+  if (tier === 'faint') {
+    // Stardust — no hot core, low alpha, falls off fast. Acts as ambient
+    // density rather than discrete points under bloom.
+    grad.addColorStop(0.0, `rgba(${r}, ${g}, ${b}, 0.55)`)
+    grad.addColorStop(0.40, `rgba(${r}, ${g}, ${b}, 0.30)`)
+    grad.addColorStop(0.85, `rgba(${r}, ${g}, ${b}, 0.04)`)
+    grad.addColorStop(1.0, `rgba(${r}, ${g}, ${b}, 0.0)`)
+  } else if (tier === 'rare') {
+    // Starlight — bright cream-white core triggers bloom, true class color
+    // halo radiates outward. Reads as a named star.
+    const cr = blend(r, 0.7), cg = blend(g, 0.7), cb = blend(b, 0.7)
+    grad.addColorStop(0.0, `rgba(${cr}, ${cg}, ${cb}, 1.0)`)
+    grad.addColorStop(0.10, `rgba(${cr}, ${cg}, ${cb}, 0.92)`)
+    grad.addColorStop(0.30, `rgba(${r}, ${g}, ${b}, 0.78)`)
+    grad.addColorStop(0.60, `rgba(${r}, ${g}, ${b}, 0.32)`)
+    grad.addColorStop(0.90, `rgba(${r}, ${g}, ${b}, 0.06)`)
+    grad.addColorStop(1.0, `rgba(${r}, ${g}, ${b}, 0.0)`)
+  } else {
+    // Mid — moderate hot core, true color falloff
+    const cr = blend(r, 0.5), cg = blend(g, 0.5), cb = blend(b, 0.5)
+    grad.addColorStop(0.0, `rgba(${cr}, ${cg}, ${cb}, 0.95)`)
+    grad.addColorStop(0.18, `rgba(${r}, ${g}, ${b}, 0.78)`)
+    grad.addColorStop(0.50, `rgba(${r}, ${g}, ${b}, 0.28)`)
+    grad.addColorStop(1.0, `rgba(${r}, ${g}, ${b}, 0.0)`)
+  }
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, size, size)
   const tex = new THREE.CanvasTexture(canvas)
   tex.colorSpace = THREE.SRGBColorSpace
   return tex
+}
+
+// Per-class tier classification — drives both texture style and sprite size.
+const CLASS_TIER = {
+  'ordinary-chondrite': 'faint',  // 29,017 — stardust carpet
+  'achondrite':         'mid',
+  'iron':               'mid',
+  'carbonaceous':       'mid',
+  'stony-iron':         'rare',
+  'planetary':          'rare',   // 144 — named stars
+}
+const CLASS_SIZE = {
+  'ordinary-chondrite': 1.0,
+  'achondrite':         1.8,
+  'iron':               1.8,
+  'carbonaceous':       1.8,
+  'stony-iron':         3.0,
+  'planetary':          4.0,
+}
+// Render-time color override — chondrite is desaturated toward the globe so it
+// reads as ambient background dust, not as data. Other classes use CLASS_COLORS.
+const CLASS_RENDER_COLOR = {
+  ...CLASS_COLORS,
+  'ordinary-chondrite': '#8A7F70', // less saturated, darker — fades into globe
 }
 
 // Producer's "Witness Halos" reframed after vote:
@@ -675,7 +873,7 @@ export default function App() {
     return meteorites.filter((m) => m.year <= year && activeClasses[m.klass])
   }, [meteorites, year, activeClasses])
 
-  // Global hero list — top HERO_COUNT by mass over the WHOLE catalog (not
+  // Global hero list — top BEACON_COUNT by mass over the WHOLE catalog (not
   // year-filtered). These are the "named monuments" — Hoba, Cape York etc.
   // Hero membership stays stable across year scrubs; visibility is gated
   // separately so each hero appears at its actual fall year.
@@ -683,11 +881,11 @@ export default function App() {
     if (!meteorites) return []
     return [...meteorites]
       .sort((a, b) => (b.mass || 0) - (a.mass || 0))
-      .slice(0, HERO_COUNT)
+      .slice(0, BEACON_COUNT)
   }, [meteorites])
 
   // Stratified split:
-  //   hero = global top HERO_COUNT, year-gated and class-filtered
+  //   hero = global top BEACON_COUNT, year-gated and class-filtered
   //   mid  = all other visible (year-filtered) meteorites
   const { heroPoints, midPoints } = useMemo(() => {
     const heroSet = new Set(globalHeroes.map((m) => m.id))
@@ -731,19 +929,39 @@ export default function App() {
 
   // Hero cones (custom layer) — replaces built-in pointsData for hero tier.
   // Single sentinel with payload; customThreeObject rebuilds InstancedMesh.
-  const heroConeData = useMemo(() => {
+  // Plan D: customLayer now also carries the 32k crater InstancedMesh, so
+  // the layer has TWO entries — one for craters, one for hero pillars.
+  const customEntries = useMemo(() => {
     if (fwm === 'active' || fwm === 'closing') return []
-    return [{ id: 'hero-cones', heroes: heroPoints, paletteName }]
+    return [
+      { id: 'imprints', kind: 'imprints', meteorites: visiblePoints, paletteName },
+      { id: 'beacons', kind: 'beacons', heroes: heroPoints, paletteName },
+    ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [heroPoints, paletteName, fwm])
+  }, [visiblePoints, heroPoints, paletteName, fwm])
+
+  // Crater mesh ref + uTime animation
+  const imprintMeshRef = useRef(null)
+  useEffect(() => {
+    let raf = 0
+    const startMs = performance.now()
+    const tick = () => {
+      raf = requestAnimationFrame(tick)
+      const m = imprintMeshRef.current
+      if (!m || !m.userData?.imprintMaterial) return
+      m.userData.imprintMaterial.uniforms.uTime.value = (performance.now() - startMs) / 1000
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [])
 
   // Hero fall-in animation state — per-instance start times so multiple
   // arrivals during meteor-rain don't reset each other.
-  const heroMeshRef = useRef(null)
+  const beaconMeshRef = useRef(null)
   const fallAnimRef = useRef({
     prevIds: new Set(),
     inFlight: new Map(),  // id → spawnTime
-    heroes: [],
+    beacons: [],
     flashRings: [],
   })
 
@@ -766,10 +984,10 @@ export default function App() {
     const tick = () => {
       raf = requestAnimationFrame(tick)
       const anim = fallAnimRef.current
-      const mesh = heroMeshRef.current
+      const mesh = beaconMeshRef.current
       if (!mesh || anim.inFlight.size === 0) return
       const now = performance.now()
-      const heroes = anim.heroes
+      const heroes = anim.beacons
       const completedIds = []
       anim.inFlight.forEach((spawnTime, id) => {
         const t = Math.min(1, (now - spawnTime) / FALL_MS)
@@ -788,10 +1006,9 @@ export default function App() {
         const dir = pos.clone().normalize()
         tmpQuat.setFromUnitVectors(Y_AXIS, dir)
         const finalHeight = massToPillarHeight(d.mass)
-        const radius = CLASS_RADIUS[d.klass] ?? 0.24
         // slight final-frame overshoot squish — landing pop
         const yScale = t > 0.95 ? finalHeight * (1 + (1 - t) * 4 * 0.06) : finalHeight
-        tmpScale.set(radius, yScale, radius)
+        tmpScale.set(1, yScale, 1) // beacon width baked into geometry
         tmpMat.compose(pos, tmpQuat, tmpScale)
         mesh.setMatrixAt(idx, tmpMat)
         if (t >= 1) completedIds.push(id)
@@ -822,6 +1039,18 @@ export default function App() {
 
   // Singleton sprite glow texture
   const glowTexture = useMemo(() => makeGlowTexture(), [])
+  // Per-class glow textures with color + tier baked in (P0.2 v2 — two-tier
+  // "stardust vs starlight" recipe).
+  const classGlowTextures = useMemo(
+    () =>
+      Object.fromEntries(
+        CLASS_ORDER.map((k) => [
+          k,
+          makeGlowTexture(CLASS_RENDER_COLOR[k], CLASS_TIER[k]),
+        ])
+      ),
+    []
+  )
 
   // class counts
   const classCounts = useMemo(() => {
@@ -841,9 +1070,11 @@ export default function App() {
     const composer = globeRef.current.postProcessingComposer?.()
     if (!composer) return
     if (!bloomRef.current) {
+      // (strength, radius, threshold) — threshold lowered from 0.50 → 0.40
+      // so hero emissive and rare-class hot cores reliably trigger bloom.
       bloomRef.current = new UnrealBloomPass(
         new THREE.Vector2(window.innerWidth, window.innerHeight),
-        0.55, 0.42, 0.50
+        0.55, 0.42, 0.40
       )
       composer.addPass(bloomRef.current)
       const onResize = () =>
@@ -1262,10 +1493,23 @@ export default function App() {
           polygonCapColor={() => palette.coastlineCap}
           polygonSideColor={() => palette.coastlineSide}
           polygonStrokeColor={() => palette.coastlineStroke}
-          /* HERO TIER: top-50 mass plinth cones (custom InstancedMesh).
-             4-dim encoding: height=mass, radius=class, color=fall, bloom=auto */
-          customLayerData={heroConeData}
+          /* PLAN D: customLayer carries TWO entries — 32k crater InstancedMesh
+             (specimen prints) and top-50 hero cones (will be replaced with thin
+             pillars in D-2). Dispatched by `kind` in customThreeObject. */
+          customLayerData={customEntries}
           customThreeObject={(d) => {
+            if (d.kind === 'imprints') {
+              // Dispose previous imprint mesh's GPU resources before swap.
+              const prevMesh = imprintMeshRef.current
+              if (prevMesh) {
+                if (prevMesh.geometry) prevMesh.geometry.dispose()
+                if (prevMesh.material) prevMesh.material.dispose()
+              }
+              const mesh = buildImprintMesh(d.meteorites)
+              imprintMeshRef.current = mesh
+              return mesh
+            }
+            // d.kind === 'beacons' — existing path
             // Detect newly-entered heroes (year scrub forward).
             const prev = fallAnimRef.current.prevIds
             const newIds = new Set()
@@ -1276,7 +1520,7 @@ export default function App() {
             const animateIds = (isFirstBuild || newIds.size === 0) ? null : newIds
 
             // Always update heroes snapshot — raf loop reads .heroes per frame.
-            fallAnimRef.current.heroes = d.heroes
+            fallAnimRef.current.beacons = d.heroes
             fallAnimRef.current.prevIds = new Set(d.heroes.map((h) => h.id))
 
             if (animateIds) {
@@ -1304,7 +1548,7 @@ export default function App() {
             // Dispose previous mesh's GPU resources before swapping.
             // three-globe rebuilds the custom layer on every customLayerData
             // change; without this, geometry+material accumulate in GPU memory.
-            const prevMesh = heroMeshRef.current
+            const prevMesh = beaconMeshRef.current
             if (prevMesh) {
               if (prevMesh.geometry) prevMesh.geometry.dispose()
               if (prevMesh.material) {
@@ -1316,33 +1560,15 @@ export default function App() {
               }
             }
 
-            const mesh = buildHeroCones(d.heroes, palette, animateIds)
-            heroMeshRef.current = mesh
+            const mesh = buildBeacons(d.heroes, palette, animateIds)
+            beaconMeshRef.current = mesh
             return mesh
           }}
           customThreeObjectUpdate={() => {}}
-          /* MID TIER: ~32k specimens, grouped by class (P0.2). Order is
-             reverse-CLASS_ORDER → commons first (back), rarest last (front).
-             Color matches the legend swatches, so what user sees == what
-             legend says. */
-          particlesData={fwmActive ? [[]] : particleSets}
-          particlesList={(d) => d}
-          particleLat="lat"
-          particleLng="lng"
-          particleAltitude={(d) => Math.max(0.005, massToAltitude(d.mass) * MAX_ALT_R * 0.4)}
-          particlesSize={(set, idx) => {
-            // Rarer classes (rendered later, larger idx) get a small size bump
-            // so they read through the chondrite carpet under bloom.
-            const klass = [...CLASS_ORDER].reverse()[idx]
-            const rare = klass === 'planetary' || klass === 'stony-iron'
-            return rare ? 2.2 : 1.7
-          }}
-          particlesSizeAttenuation={true}
-          particlesTexture={glowTexture}
-          particlesColor={(set, idx) => {
-            const klass = [...CLASS_ORDER].reverse()[idx]
-            return CLASS_COLORS[klass] || (palette.particleColor || PARTICLE_AMBER)
-          }}
+          /* MID TIER (Plan D): replaced by 32k crater InstancedMesh in
+             customLayer. Particles layer disabled — kept as `[[]]` so the
+             three-globe layer stays bound but renders nothing. */
+          particlesData={[[]]}
           /* BASE TIER: heatmap temporarily disabled — KDE perf issue at 32k.
              TODO: investigate hexBin alternative or reduce bandwidth. */
           /* Rings layer — inward-propagating "impact ripple" on selected */
