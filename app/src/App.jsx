@@ -838,7 +838,7 @@ export default function App() {
 
   // load + parse meteorites
   useEffect(() => {
-    fetch('/meteorites.csv')
+    fetch(`${import.meta.env.BASE_URL}meteorites.csv`)
       .then((r) => r.text())
       .then((text) => {
         const rows = parseCsv(text)
