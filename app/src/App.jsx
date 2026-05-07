@@ -601,6 +601,10 @@ const PALETTES = {
       '--rust-accent': '#9C2B1F',
       '--bg-near': '#F2EDE3',
       '--bg-far': '#DCE3E5',
+      /* Atlas — light theme card surface: cream paper tinted darker, with the
+         text inverted to dark via --paper. Other modes inherit the dark default. */
+      '--surface-1': 'rgba(232, 222, 199, 0.92)',
+      '--surface-1-text': '#1A1410',
     },
     atmosphereColor: '#a8b8c4',
     coastlineCap: 'rgba(0,0,0,0)',
@@ -1131,54 +1135,74 @@ export default function App() {
   }, [meteorites])
 
   // Toggle bloom strength based on palette
+  // For Atlas (daylight, bloomEnabled=false) we must DISABLE the pass entirely,
+  // not just set strength=0 — UnrealBloomPass still writes to the framebuffer
+  // when enabled, blocking the page's cream bg from showing through.
   useEffect(() => {
     if (!bloomRef.current) return
-    bloomRef.current.strength = palette.bloomEnabled === false ? 0 : 0.08
+    const enabled = palette.bloomEnabled !== false
+    bloomRef.current.enabled = enabled
+    bloomRef.current.strength = enabled ? 0.08 : 0
   }, [paletteName, palette])
 
   // Plan F+ #1: Globe lighting overhaul (github-globe inspired).
-  // Default react-globe.gl ships one ambient + one directional. github-globe's
-  // premium look comes from: dim ambient + 2-3 directional lights from cool/
-  // warm angles, giving the sphere visible terminator + cool fill light.
-  // We add ours and dial down whatever defaults exist.
+  // PALETTE-AWARE: night-earth modes (Sextant/Folio) need dramatic key/fill
+  // lighting because the texture is dark and flat. Daylight mode (Atlas)
+  // already has baked lighting in the texture; adding our key/fill makes it
+  // look "double-lit" and weird. So Atlas uses minimal extra lighting.
   const lightsRef = useRef(null)
   useEffect(() => {
     if (!globeRef.current || !meteorites) return
     const scene = globeRef.current.scene?.()
     if (!scene) return
-    if (lightsRef.current) return // only once
+    if (lightsRef.current) {
+      // Tear down previous lights so we can rebuild for new palette.
+      const { key, fill, top, amb } = lightsRef.current
+      ;[key, fill, top, amb].forEach((l) => l && scene.remove(l))
+      lightsRef.current = null
+    }
 
     // Walk existing lights and dim them (don't remove — react-globe.gl owns them).
+    // Atlas needs HIGH ambient so the daylight texture's baked colors show
+    // through cleanly (texture × low light = black globe).
     scene.traverse((o) => {
       if (o.isLight) {
-        if (o.isAmbientLight) o.intensity = 0.18
-        else if (o.isDirectionalLight) o.intensity = 0.35
+        if (o.isAmbientLight) o.intensity = palette.bloomEnabled === false ? 2.2 : 0.18
+        else if (o.isDirectionalLight) o.intensity = palette.bloomEnabled === false ? 0.7 : 0.35
       }
     })
 
-    // Key (warm, slightly above-right): the "sun" rim
+    if (palette.bloomEnabled === false) {
+      // ATLAS — daylight earth. Texture is self-illuminated. High ambient
+      // surfaces the texture's natural colors; gentle directional gives
+      // a soft sunward lift without baking a second terminator on top of
+      // the texture's own.
+      const sun = new THREE.DirectionalLight(0xffffff, 0.4)
+      sun.position.set(180, 80, 100)
+      scene.add(sun)
+      lightsRef.current = { top: sun }
+      return
+    }
+
+    // SEXTANT / FOLIO — night-earth. Need dramatic terminator lighting.
     const key = new THREE.DirectionalLight(0xfff2d8, 1.15)
     key.position.set(220, 140, 180)
     scene.add(key)
 
-    // Cool fill (deep blue, opposite low-angle): adds the "Earth at night"
-    // atmospheric feel — terminator rim glow.
     const fill = new THREE.DirectionalLight(0x4a78b8, 0.55)
     fill.position.set(-260, -40, -120)
     scene.add(fill)
 
-    // Top-down soft (paper white): gives Sextant globe its "drafting table"
-    // top illumination so it's not pure dark on the upper pole.
     const top = new THREE.DirectionalLight(0xb0c8e0, 0.30)
     top.position.set(0, 280, 30)
     scene.add(top)
 
-    // Slight ambient warmth so the dark side isn't pitch black.
     const amb = new THREE.AmbientLight(0x1a1820, 0.55)
     scene.add(amb)
 
     lightsRef.current = { key, fill, top, amb }
-  }, [meteorites])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meteorites, paletteName])
 
   // Apply globeTint via globeMaterial().color — but during FWM the globe
   // should fade up FROM black, not snap on. Producer's spec.

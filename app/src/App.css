@@ -748,7 +748,10 @@
   right: 40px;
   z-index: 6;
   max-width: 260px;
-  background: rgba(11, 14, 24, 0.78);
+  /* palette-aware surface: dark theme = navy 78%; light Atlas inverts to a
+     translucent dark-cream card via --ink-soft + paper-tinted overlay */
+  background: var(--surface-1, rgba(11, 14, 24, 0.78));
+  color: var(--paper);
   border-left: 1px solid var(--amber-soft);
   padding: 14px 18px;
   backdrop-filter: blur(2px);
