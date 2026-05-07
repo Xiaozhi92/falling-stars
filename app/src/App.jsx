@@ -237,6 +237,19 @@ const CLASS_SIZE_BOOST = {
   'ordinary-chondrite': 1.0,
 }
 
+// Per-class HARD CAP on point size. eq_hist alone can promote heavy chondrites
+// (which exist — Allende is technically a chondrite at 2 tonnes!) to large
+// sizes, defeating the carpet/star hierarchy. Cap chondrite at 3.5px no matter
+// what; let rare classes exceed.
+const CLASS_SIZE_CAP = {
+  'planetary': 14.0,
+  'stony-iron': 13.0,
+  'iron': 9.0,
+  'carbonaceous': 8.5,
+  'achondrite': 8.0,
+  'ordinary-chondrite': 3.5, // <- carpet stays carpet
+}
+
 // Per-class alpha — VC's contrast trick: rare 100%, common 30%.
 const CLASS_ALPHA = {
   'planetary': 1.00,
@@ -269,6 +282,11 @@ function makeSharpDotTexture() {
 
 // Custom Points shader — per-vertex size + color, alphaTest, sizeAttenuation,
 // no bloom, no breathing. Sharp dots, like satellites in Stuff in Space.
+//
+// Plan F+ #4: Stellarium-style brightness LOD. Small points (chondrite carpet)
+// fade dramatically when camera is far so the first impression is dominated by
+// rare stars. As user zooms in, small points reveal — "the archive opens up".
+// Large points (planetary, hero) stay at full alpha at all distances.
 const POINTS_VERT = `
   attribute vec3 aColor;
   attribute float aSize;
@@ -277,11 +295,23 @@ const POINTS_VERT = `
   varying float vAlpha;
   void main() {
     vColor = aColor;
-    vAlpha = aAlpha;
     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
     // sizeAttenuation — points shrink with distance, like satellites demo.
     gl_PointSize = aSize * (300.0 / -mvPosition.z);
     gl_Position = projectionMatrix * mvPosition;
+
+    // Stellarium LOD — camera distance to point in view space.
+    float camDist = length(mvPosition.xyz);
+    // 1.0 when close (≤120 units from camera), 0.0 when far (≥260 units).
+    // Default react-globe.gl altitude≈2.5 puts camera ~350 from globe center,
+    // so camDist of nearby surface points starts ~270. Zoomed in goes to ~110.
+    float lod = smoothstep(260.0, 120.0, camDist);
+    // Small points (size ≤3px) get the LOD treatment; large points (≥9px)
+    // stay at full alpha. Linear interpolation in between.
+    float sizeWeight = smoothstep(3.0, 9.0, aSize);
+    // Far view: small points down to 18% of base alpha. Close view: full.
+    float lodAlphaMul = mix(0.18 + 0.82 * lod, 1.0, sizeWeight);
+    vAlpha = aAlpha * lodAlphaMul;
   }
 `
 
@@ -319,7 +349,9 @@ function buildPointsMesh(meteorites, sharpDotTex, massPctMap) {
 
     const pct = massPctMap?.get(m.id) ?? 0
     const baseSize = massToPointSize(m.mass, pct)
-    sizes[i] = baseSize * (CLASS_SIZE_BOOST[m.klass] ?? 1.0)
+    const boosted = baseSize * (CLASS_SIZE_BOOST[m.klass] ?? 1.0)
+    const cap = CLASS_SIZE_CAP[m.klass] ?? 12
+    sizes[i] = Math.min(boosted, cap)
     alphas[i] = CLASS_ALPHA[m.klass] ?? 0.4
   }
 
