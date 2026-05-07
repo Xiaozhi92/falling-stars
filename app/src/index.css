@@ -1,0 +1,71 @@
+:root {
+  /* Color tokens — see DESIGN.md */
+  --ink: #0b0e18;
+  --ink-soft: #11141f;
+  --paper: #e8e1cd;
+  --paper-dim: #a39b85;
+  --paper-faint: #5d5747;
+  --amber: #d4a85f;
+  --amber-soft: #6b532c;
+  --rule: #2a2d38;
+
+  --iron: #7c7670;
+  --stone: #a8957a;
+  --stony-iron: #9b6f4a;
+
+  --display: "Cormorant Garamond", "Noto Serif SC", "Songti SC", serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --ease: cubic-bezier(0.7, 0, 0.3, 1);
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg-far, var(--ink));
+  color: var(--paper);
+  font-family: var(--mono);
+  font-weight: 300;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-image:
+    linear-gradient(rgba(232, 225, 205, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(232, 225, 205, 0.018) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  letter-spacing: inherit;
+}
+
+::selection {
+  background: var(--amber);
+  color: var(--ink);
+}
+
+.num,
+input[type="range"] {
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  font-variant-numeric: tabular-nums lining-nums;
+}

@@ -1,0 +1,28 @@
+# dependencies
+app/node_modules/
+
+# build output
+app/dist/
+app/build/
+
+# vite cache
+app/.vite/
+app/node_modules/.vite/
+
+# editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# env (just in case future api keys land here)
+.env
+.env.local
+.env.*.local
