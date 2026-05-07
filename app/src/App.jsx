@@ -647,32 +647,39 @@ const PALETTES = {
 
   archive: {
     name: 'Folio',
-    sub: 'Sepia · long-form reading',
+    sub: 'Cellarius 1660 · celestial atlas',
+    /* A.2: Real Cellarius Harmonia Macrocosmica colorway. Deep indigo plate
+       field (#1F2A4A) + cream vellum margins (#EFE3C8) + cinnabar accents
+       (#B23A2E) + gilt highlights (#C4A24A). The deep-indigo globe behaves
+       like an old plate ink surface: light shows through as star-points,
+       dim mass like distant constellations. */
     globeImageUrl: GLOBE_TEX.blackMarble,
     bumpImageUrl: GLOBE_TEX.bumpmap,
-    globeTint: '#A87440',
+    globeTint: '#3B4A78', // deep cellarius indigo tint over black marble
     bloomEnabled: true,
     css: {
-      '--ink': '#0E0C08',
-      '--ink-soft': '#15120B',
-      '--paper': '#EDE3CC',
-      '--paper-dim': '#B0A382',
-      '--paper-faint': '#5F5638',
-      '--amber': '#A87440',
-      '--amber-soft': '#5C3F23',
-      '--rule': '#2B2618',
-      '--cool-accent': '#3D547F',
+      '--ink': '#1F2A4A',           /* plate field — deep indigo */
+      '--ink-soft': 'rgba(31, 42, 74, 0.85)',
+      '--paper': '#EFE3C8',         /* vellum cream */
+      '--paper-dim': '#C4B797',
+      '--paper-faint': '#7E7250',
+      '--amber': '#C4A24A',         /* gilt highlight */
+      '--amber-soft': '#7E6428',
+      '--rule': '#2C3856',
+      '--cool-accent': '#B23A2E',   /* cinnabar — used for active accents */
       '--rust-accent': '#8B3A1F',
-      '--bg-near': '#15120B',
-      '--bg-far': '#080604',
+      '--bg-near': '#1F2A4A',
+      '--bg-far': '#0F1530',
+      /* Folio surface: deep plate-blue with subtle gilt rim */
+      '--surface-1': 'rgba(15, 21, 48, 0.82)',
     },
-    atmosphereColor: '#A87440',
-    coastlineCap: 'rgba(168, 116, 64, 0.06)',
-    coastlineSide: 'rgba(168, 116, 64, 0.12)',
-    coastlineStroke: 'rgba(168, 116, 64, 0.50)',
-    heroColor: '#EDE3CC',
-    particleColor: '#A87440',
-    ringColor: 'rgba(61, 84, 127, ALPHA)',
+    atmosphereColor: '#C4A24A',     /* gilt halo around globe */
+    coastlineCap: 'rgba(196, 162, 74, 0.07)',
+    coastlineSide: 'rgba(196, 162, 74, 0.14)',
+    coastlineStroke: 'rgba(196, 162, 74, 0.55)',
+    heroColor: '#EFE3C8',
+    particleColor: '#C4A24A',
+    ringColor: 'rgba(178, 58, 46, ALPHA)', /* cinnabar ripple */
   },
 }
 
