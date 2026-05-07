@@ -185,143 +185,163 @@ function buildBeacons(heroes, palette, newIds = null) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// PLAN D — 32k crater InstancedMesh (replaces particles layer)
-// "Stardust ground truth": each meteorite is a flat circular print on the
-// globe surface, oriented tangent to the sphere. Per-instance:
-//   • position = lat,lng → 3D
-//   • scale (radius) = log(mass)
-//   • color = class
-//   • phase = random offset for breathing
-// Shader does soft radial alpha + per-instance breathing (±7% over ~5s).
-// All 31,956 in ONE draw call, single material.
+// PLAN F — Sprite Points (replaces Plan D's tangent-disc imprint mesh)
+//
+// Plan D failed in user testing — flat tangent discs at oblique angles
+// created mold-like blobs. Research recommended copying three-globe's
+// satellites demo (25k Points + sharp PNG sprite + alphaTest), KeepTrack
+// (categorical color buckets, no bloom), and Visual Capitalist's century-of-
+// meteorites graphic (rare warm 100% opacity vs common cool 30% opacity,
+// log-scale 2-12px).
+//
+// Single THREE.Points geometry, ONE draw call. gl_PointSize per vertex via
+// custom shader. alphaTest 0.5 gives a sharp circular dot, NOT a soft blob.
+// Always faces camera — no oblique-angle distortion.
 // ─────────────────────────────────────────────────────────────────────────
-function massToCraterRadius(mass) {
-  // log scale across 6+ orders of magnitude. Min 0.45 (chondrite),
-  // max 2.8 (Hoba 60-tonne territory). Globe radius = 100, so 1 = 1%.
-  if (!mass || mass <= 0) return 0.45
-  const t = Math.min(1, Math.log10(mass + 1) / 7.8)
-  return 0.45 + 2.35 * t
+
+// Plan F+ #2: eq_hist long-tail size mapping (Datashader inspired).
+// Plain log(mass) compresses the long tail too gently — Hoba and a chondrite
+// end up only ~6× apart in pixels. eq_hist sorts the whole catalog by mass
+// and assigns size by RANK percentile — the rare top 0.5% gets dramatically
+// more screen real estate, exactly the "luxury" the long-tail viz literature
+// recommends. Built once at meteorites load, looked up per render.
+function buildMassPercentileMap(meteorites) {
+  const sorted = [...meteorites]
+    .filter((m) => m.mass != null && m.mass > 0)
+    .sort((a, b) => a.mass - b.mass)
+  const map = new Map()
+  for (let i = 0; i < sorted.length; i++) {
+    map.set(sorted[i].id, i / Math.max(1, sorted.length - 1)) // 0..1
+  }
+  return map
 }
 
-// Three.js auto-declares `instanceMatrix` and `instanceColor` when an
-// InstancedMesh has those buffers set, even for ShaderMaterial. Custom
-// per-instance attributes (aPhase, aSizeNorm, aFell) need explicit declaration.
-const CRATER_VERT = `
-  attribute float aPhase;
-  attribute float aSizeNorm;
-  attribute float aFell;
-  varying vec2 vUv;
+function massToPointSize(mass, percentile) {
+  // percentile 0..1 from eq_hist; null mass falls to floor.
+  if (percentile == null) return 2.0
+  // Floor 1.8px (chondrite carpet), ceiling 13px (Hoba). Top 5% gets size 8+,
+  // top 1% (≈320 specimens) gets size 11+ — that's the "starlight" tier.
+  // Power curve so most chondrite stays small, rare tail explodes upward.
+  const shaped = Math.pow(percentile, 1.6)
+  return 1.8 + 11.2 * shaped
+}
+
+// Per-class size-floor multiplier — rare classes get a small bump so they
+// don't get lost in chondrite carpet. (eBird-style brightness ≠ density trick.)
+const CLASS_SIZE_BOOST = {
+  'planetary': 1.5,
+  'stony-iron': 1.4,
+  'iron': 1.15,
+  'carbonaceous': 1.15,
+  'achondrite': 1.15,
+  'ordinary-chondrite': 1.0,
+}
+
+// Per-class alpha — VC's contrast trick: rare 100%, common 30%.
+const CLASS_ALPHA = {
+  'planetary': 1.00,
+  'stony-iron': 0.95,
+  'iron': 0.85,
+  'carbonaceous': 0.85,
+  'achondrite': 0.85,
+  'ordinary-chondrite': 0.30,
+}
+
+// Sharp sprite — 32×32 white-only radial dot with hard mid alpha for alphaTest.
+function makeSharpDotTexture() {
+  const size = 32
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = size
+  const ctx = canvas.getContext('2d')
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
+  // Bright core, sharp falloff at 0.40 → 0.50 (alphaTest 0.5 cuts here).
+  grad.addColorStop(0.0, 'rgba(255, 255, 255, 1.0)')
+  grad.addColorStop(0.40, 'rgba(255, 255, 255, 0.95)')
+  grad.addColorStop(0.50, 'rgba(255, 255, 255, 0.55)') // alphaTest cut zone
+  grad.addColorStop(0.85, 'rgba(255, 255, 255, 0.05)')
+  grad.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)')
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, size, size)
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.colorSpace = THREE.SRGBColorSpace
+  return tex
+}
+
+// Custom Points shader — per-vertex size + color, alphaTest, sizeAttenuation,
+// no bloom, no breathing. Sharp dots, like satellites in Stuff in Space.
+const POINTS_VERT = `
+  attribute vec3 aColor;
+  attribute float aSize;
+  attribute float aAlpha;
   varying vec3 vColor;
-  varying float vPhase;
-  varying float vSizeNorm;
-  varying float vFell;
+  varying float vAlpha;
   void main() {
-    vUv = uv;
-    #ifdef USE_INSTANCING_COLOR
-      vColor = instanceColor;
-    #else
-      vColor = vec3(1.0);
-    #endif
-    vPhase = aPhase;
-    vSizeNorm = aSizeNorm;
-    vFell = aFell;
-    gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+    vColor = aColor;
+    vAlpha = aAlpha;
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    // sizeAttenuation — points shrink with distance, like satellites demo.
+    gl_PointSize = aSize * (300.0 / -mvPosition.z);
+    gl_Position = projectionMatrix * mvPosition;
   }
 `
 
-const CRATER_FRAG = `
-  varying vec2 vUv;
+const POINTS_FRAG = `
   varying vec3 vColor;
-  varying float vPhase;
-  varying float vSizeNorm;
-  varying float vFell;
-  uniform float uTime;
-  uniform float uBreathPeriod;
-  uniform float uFellPeriod;
-  uniform float uOpacity;
+  varying float vAlpha;
+  uniform sampler2D uMap;
   void main() {
-    float d = length(vUv - 0.5) * 2.0; // 0 center, 1 edge
-    if (d > 1.0) discard;
-    // Filled disc with soft edge — reads as a "print" on the globe surface.
-    float alpha = smoothstep(1.0, 0.55, d);
-    float core = smoothstep(0.55, 0.0, d) * 0.35;
-    // Size-graded breathing (8s "slow tide"):
-    //   small imprints  → ±2%  "almost still"
-    //   large imprints  → ±8%  "tidal"
-    float amp = mix(0.02, 0.08, vSizeNorm);
-    float breath = 1.0 + amp * sin(uTime * 6.2831853 / uBreathPeriod + vPhase * 6.2831853);
-    // Plan D-3: Fell witness pulse — Fell specimens (vFell=1) get an extra
-    // slow pulse on a coprime period (13s vs 8s breath) so they don't sync up
-    // and create visual beating. This is the "被见证 = 会动" thesis: Found
-    // specimens silently breathe; Fell specimens have a second heartbeat that
-    // brightens them and adds a faint white halo.
-    float fellPulse = sin(uTime * 6.2831853 / uFellPeriod + vPhase * 6.2831853 * 0.7);
-    float fellGlow = vFell * (0.5 + 0.5 * fellPulse) * 0.55; // 0..0.55 amplitude
-    vec3 col = vColor + vColor * core + vec3(fellGlow * 0.45);
-    float fellAlphaBoost = 1.0 + vFell * 0.18 * (0.5 + 0.5 * fellPulse);
-    gl_FragColor = vec4(col, alpha * uOpacity * breath * fellAlphaBoost);
+    vec4 tex = texture2D(uMap, gl_PointCoord);
+    if (tex.a < 0.5) discard; // alphaTest — sharp dot, no blob
+    gl_FragColor = vec4(vColor, tex.a * vAlpha);
   }
 `
 
-function buildImprintMesh(meteorites) {
-  const geom = new THREE.CircleGeometry(1, 14)
+function buildPointsMesh(meteorites, sharpDotTex, massPctMap) {
+  const positions = new Float32Array(meteorites.length * 3)
+  const colors = new Float32Array(meteorites.length * 3)
+  const sizes = new Float32Array(meteorites.length)
+  const alphas = new Float32Array(meteorites.length)
+  const tmpColor = new THREE.Color()
+  const ALT = 0.005
+
+  for (let i = 0; i < meteorites.length; i++) {
+    const m = meteorites[i]
+    const pos = polar2cart(m.lat, m.lng, ALT)
+    positions[i * 3 + 0] = pos.x
+    positions[i * 3 + 1] = pos.y
+    positions[i * 3 + 2] = pos.z
+
+    const hex = CLASS_COLORS[m.klass] || CLASS_COLORS['ordinary-chondrite']
+    tmpColor.set(hex)
+    colors[i * 3 + 0] = tmpColor.r
+    colors[i * 3 + 1] = tmpColor.g
+    colors[i * 3 + 2] = tmpColor.b
+
+    const pct = massPctMap?.get(m.id) ?? 0
+    const baseSize = massToPointSize(m.mass, pct)
+    sizes[i] = baseSize * (CLASS_SIZE_BOOST[m.klass] ?? 1.0)
+    alphas[i] = CLASS_ALPHA[m.klass] ?? 0.4
+  }
+
+  const geom = new THREE.BufferGeometry()
+  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  geom.setAttribute('aColor', new THREE.BufferAttribute(colors, 3))
+  geom.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1))
+  geom.setAttribute('aAlpha', new THREE.BufferAttribute(alphas, 1))
+
   const mat = new THREE.ShaderMaterial({
-    uniforms: {
-      uTime: { value: 0 },
-      uBreathPeriod: { value: 8.0 },   // 8s slow tide (motion-designer note)
-      uFellPeriod: { value: 13.0 },    // coprime to 8s — no visual beating
-      uOpacity: { value: 0.85 },
-    },
-    vertexShader: CRATER_VERT,
-    fragmentShader: CRATER_FRAG,
+    uniforms: { uMap: { value: sharpDotTex } },
+    vertexShader: POINTS_VERT,
+    fragmentShader: POINTS_FRAG,
     transparent: true,
     depthWrite: false,
     blending: THREE.NormalBlending,
   })
 
-  const mesh = new THREE.InstancedMesh(geom, mat, meteorites.length)
-  mesh.frustumCulled = false
-  mesh.userData.imprintMaterial = mat
-  mesh.userData.meteorites = meteorites
-
-  const Z_AXIS = new THREE.Vector3(0, 0, 1)
-  const tmpQuat = new THREE.Quaternion()
-  const tmpMat = new THREE.Matrix4()
-  const tmpScale = new THREE.Vector3()
-  const tmpColor = new THREE.Color()
-  const phaseAttr = new Float32Array(meteorites.length)
-  const sizeAttr = new Float32Array(meteorites.length)
-  const fellAttr = new Float32Array(meteorites.length)
-  const R_MIN = 0.45, R_MAX = 2.80 // matches massToCraterRadius bounds
-
-  for (let i = 0; i < meteorites.length; i++) {
-    const m = meteorites[i]
-    const radius = massToCraterRadius(m.mass)
-    // Sit just above the surface — small lift prevents z-fighting with globe.
-    const pos = polar2cart(m.lat, m.lng, 0.003)
-    const dir = pos.clone().normalize()
-    tmpQuat.setFromUnitVectors(Z_AXIS, dir)
-    tmpScale.set(radius, radius, 1)
-    tmpMat.compose(pos, tmpQuat, tmpScale)
-    mesh.setMatrixAt(i, tmpMat)
-
-    const hex = CLASS_RENDER_COLOR[m.klass] || CLASS_RENDER_COLOR['ordinary-chondrite']
-    tmpColor.set(hex)
-    mesh.setColorAt(i, tmpColor)
-
-    phaseAttr[i] = Math.random()
-    // Normalized size 0..1 — drives breath amplitude (small=±2%, large=±8%)
-    sizeAttr[i] = Math.max(0, Math.min(1, (radius - R_MIN) / (R_MAX - R_MIN)))
-    // Fell flag — drives the witness pulse in shader. 1.0 = witnessed fall.
-    fellAttr[i] = m.fall === 'Fell' ? 1.0 : 0.0
-  }
-  mesh.instanceMatrix.needsUpdate = true
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
-  geom.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phaseAttr, 1))
-  geom.setAttribute('aSizeNorm', new THREE.InstancedBufferAttribute(sizeAttr, 1))
-  geom.setAttribute('aFell', new THREE.InstancedBufferAttribute(fellAttr, 1))
-
-  return mesh
+  const points = new THREE.Points(geom, mat)
+  points.frustumCulled = false
+  points.userData.meteorites = meteorites
+  return points
 }
 
 // Build a soft radial-gradient sprite texture used for the mid-tier glow points.
@@ -934,26 +954,21 @@ export default function App() {
   const customEntries = useMemo(() => {
     if (fwm === 'active' || fwm === 'closing') return []
     return [
-      { id: 'imprints', kind: 'imprints', meteorites: visiblePoints, paletteName },
+      { id: 'points', kind: 'points', meteorites: visiblePoints, paletteName },
       { id: 'beacons', kind: 'beacons', heroes: heroPoints, paletteName },
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visiblePoints, heroPoints, paletteName, fwm])
 
   // Crater mesh ref + uTime animation
-  const imprintMeshRef = useRef(null)
-  useEffect(() => {
-    let raf = 0
-    const startMs = performance.now()
-    const tick = () => {
-      raf = requestAnimationFrame(tick)
-      const m = imprintMeshRef.current
-      if (!m || !m.userData?.imprintMaterial) return
-      m.userData.imprintMaterial.uniforms.uTime.value = (performance.now() - startMs) / 1000
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [])
+  // Plan F: Points layer — single THREE.Points, sharp PNG sprite, no breathing.
+  const pointsMeshRef = useRef(null)
+  const sharpDotTex = useMemo(() => makeSharpDotTexture(), [])
+  // eq_hist mass percentile lookup (Plan F+ #2) — built once when catalog loads.
+  const massPctMap = useMemo(() => {
+    if (!meteorites) return null
+    return buildMassPercentileMap(meteorites)
+  }, [meteorites])
 
   // Hero fall-in animation state — per-instance start times so multiple
   // arrivals during meteor-rain don't reset each other.
@@ -1070,11 +1085,11 @@ export default function App() {
     const composer = globeRef.current.postProcessingComposer?.()
     if (!composer) return
     if (!bloomRef.current) {
-      // (strength, radius, threshold) — threshold lowered from 0.50 → 0.40
-      // so hero emissive and rare-class hot cores reliably trigger bloom.
+      // Plan F+: bloom further reduced — github-globe research showed premium
+      // look comes from globe lighting + atmosphere, NOT from glow on points.
       bloomRef.current = new UnrealBloomPass(
         new THREE.Vector2(window.innerWidth, window.innerHeight),
-        0.55, 0.42, 0.40
+        0.08, 0.5, 0.92
       )
       composer.addPass(bloomRef.current)
       const onResize = () =>
@@ -1086,8 +1101,52 @@ export default function App() {
   // Toggle bloom strength based on palette
   useEffect(() => {
     if (!bloomRef.current) return
-    bloomRef.current.strength = palette.bloomEnabled === false ? 0 : 0.55
+    bloomRef.current.strength = palette.bloomEnabled === false ? 0 : 0.08
   }, [paletteName, palette])
+
+  // Plan F+ #1: Globe lighting overhaul (github-globe inspired).
+  // Default react-globe.gl ships one ambient + one directional. github-globe's
+  // premium look comes from: dim ambient + 2-3 directional lights from cool/
+  // warm angles, giving the sphere visible terminator + cool fill light.
+  // We add ours and dial down whatever defaults exist.
+  const lightsRef = useRef(null)
+  useEffect(() => {
+    if (!globeRef.current || !meteorites) return
+    const scene = globeRef.current.scene?.()
+    if (!scene) return
+    if (lightsRef.current) return // only once
+
+    // Walk existing lights and dim them (don't remove — react-globe.gl owns them).
+    scene.traverse((o) => {
+      if (o.isLight) {
+        if (o.isAmbientLight) o.intensity = 0.18
+        else if (o.isDirectionalLight) o.intensity = 0.35
+      }
+    })
+
+    // Key (warm, slightly above-right): the "sun" rim
+    const key = new THREE.DirectionalLight(0xfff2d8, 1.15)
+    key.position.set(220, 140, 180)
+    scene.add(key)
+
+    // Cool fill (deep blue, opposite low-angle): adds the "Earth at night"
+    // atmospheric feel — terminator rim glow.
+    const fill = new THREE.DirectionalLight(0x4a78b8, 0.55)
+    fill.position.set(-260, -40, -120)
+    scene.add(fill)
+
+    // Top-down soft (paper white): gives Sextant globe its "drafting table"
+    // top illumination so it's not pure dark on the upper pole.
+    const top = new THREE.DirectionalLight(0xb0c8e0, 0.30)
+    top.position.set(0, 280, 30)
+    scene.add(top)
+
+    // Slight ambient warmth so the dark side isn't pitch black.
+    const amb = new THREE.AmbientLight(0x1a1820, 0.55)
+    scene.add(amb)
+
+    lightsRef.current = { key, fill, top, amb }
+  }, [meteorites])
 
   // Apply globeTint via globeMaterial().color — but during FWM the globe
   // should fade up FROM black, not snap on. Producer's spec.
@@ -1338,15 +1397,18 @@ export default function App() {
     const [yMin, yMax] = yearRange
     const TICK_MS = 32
     const PAUSE_MS = 1500
+    // If we're already at end, restart from beginning. Otherwise resume.
     let yearLocal = year >= yMax ? yMin : year
     setYear(yearLocal)
     let timer = null
     const advance = () => {
       yearLocal += 1
       if (yearLocal > yMax) {
-        setYear(yMin)
-        yearLocal = yMin
-        timer = setTimeout(advance, PAUSE_MS)
+        // User feedback: previously looped back to yMin which destroyed the
+        // chance to interact with the final state. Now stop at the end so
+        // the user can browse what fell. Press play again to replay.
+        setYear(yMax)
+        setIsPlaying(false)
         return
       }
       setYear(yearLocal)
@@ -1498,15 +1560,15 @@ export default function App() {
              pillars in D-2). Dispatched by `kind` in customThreeObject. */
           customLayerData={customEntries}
           customThreeObject={(d) => {
-            if (d.kind === 'imprints') {
-              // Dispose previous imprint mesh's GPU resources before swap.
-              const prevMesh = imprintMeshRef.current
+            if (d.kind === 'points') {
+              // Dispose previous points mesh's GPU resources before swap.
+              const prevMesh = pointsMeshRef.current
               if (prevMesh) {
                 if (prevMesh.geometry) prevMesh.geometry.dispose()
                 if (prevMesh.material) prevMesh.material.dispose()
               }
-              const mesh = buildImprintMesh(d.meteorites)
-              imprintMeshRef.current = mesh
+              const mesh = buildPointsMesh(d.meteorites, sharpDotTex, massPctMap)
+              pointsMeshRef.current = mesh
               return mesh
             }
             // d.kind === 'beacons' — existing path
@@ -1723,10 +1785,21 @@ export default function App() {
       {hover && hover.x != null && !selected && (
         <div className="specimen" style={{ left: hover.x, top: hover.y }}>
           <div className="tag-id">
-            FALL № {String(hover.d.id || '00000').padStart(5, '0')} · {hover.d.year}
+            {plateLabel(hover.d.id)} · {hover.d.year}
           </div>
           <div className="tag-name">{hover.d.name}</div>
           <div className="hint">Click to open dossier</div>
+        </div>
+      )}
+
+      {/* Plan F+ #3: NASA-style 3-line credit footer (Eyes on Asteroids). Sits
+           bottom-left below the timeline; gives instant scientific-archive
+           authority without competing with anything. */}
+      {!fwmActive && (
+        <div className="archive-credit" aria-hidden="true">
+          <div>Data · NASA Meteoritical Bulletin</div>
+          <div>Visualization · Falling Stars · 陨星档案</div>
+          <div>MMXXVI</div>
         </div>
       )}
 
@@ -1822,7 +1895,7 @@ function SpecimenDossier({ d, onClose }) {
       <button className="dossier-close" onClick={onClose} aria-label="Close">
         <span aria-hidden>×</span>
       </button>
-      <div className="dossier-id">FALL № {String(d.id || '00000').padStart(5, '0')}</div>
+      <div className="dossier-id">{plateLabel(d.id)}</div>
       <div className="dossier-name">{d.name}</div>
       <div className="dossier-year">{d.year}</div>
       <div className="dossier-rule" />
@@ -1982,6 +2055,33 @@ function massComparison(g) {
   if (g < 5e6) return 'a small car'
   if (g < 5e7) return 'a school bus'
   return 'a blue whale'
+}
+
+// Plan F+ #3: Roman numeral helper for plate-style ID. Cellarius / Royal
+// Society 1830 plate book aesthetic — gives instant "archive plate" feel.
+// Caps at MMM (3000) since real meteorite IDs go up to ~70,000 — for those
+// we fall back to arabic so we don't spew dozens of M's.
+function toRoman(num) {
+  if (num == null || num <= 0 || num > 3999) return null
+  const map = [
+    [1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'],
+    [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'],
+    [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I'],
+  ]
+  let n = num, out = ''
+  for (const [v, s] of map) {
+    while (n >= v) { out += s; n -= v }
+  }
+  return out
+}
+
+function plateLabel(id) {
+  const n = parseInt(id, 10)
+  if (Number.isNaN(n)) return `№ ${id}`
+  // Roman numerals only when readable (up to MMM = 3000). Above that use
+  // formatted arabic with locale comma — still feels archival.
+  const roman = toRoman(n)
+  return roman ? `PL. ${roman}` : `PL. № ${n.toLocaleString()}`
 }
 
 function nameSlug(name) {

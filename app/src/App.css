@@ -122,7 +122,32 @@
 
 /* Make sure the canvas + UI sit above the dust */
 .scene-globe { z-index: 2; }
-.masthead, .legend, .timeline, .specimen, .dossier, .dense-fields, .zoom-banner { z-index: 5; }
+.masthead, .legend, .timeline, .specimen, .dossier, .dense-fields, .zoom-banner, .archive-credit { z-index: 5; }
+
+/* Plan F+ #3: NASA Eyes on Asteroids–style scientific credit block.
+   Tiny, monospaced, far-left-bottom corner. Three lines.
+   Establishes scientific-archive authority without competing with the
+   globe or the timeline. */
+.archive-credit {
+  position: absolute;
+  left: 32px;
+  bottom: 140px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--paper-faint);
+  line-height: 1.7;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0.55;
+}
+.archive-credit > div:nth-child(1) { color: var(--paper-dim); }
+.archive-credit > div:nth-child(3) {
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  color: var(--amber-soft);
+  letter-spacing: 0.32em;
+}
 
 .scene-globe {
   position: absolute;
