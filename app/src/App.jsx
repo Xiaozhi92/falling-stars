@@ -112,8 +112,12 @@ function polar2cart(lat, lng, alt = 0) {
  * Truncated cone: radiusBottom=1.0, radiusTop=0.45, height=1, capped.
  * Per-instance scale encodes height (mass) and radius (class).
  * Per-instance color encodes fall (Fell=hero, Found=derived dim).
+ *
+ * `newIds` (optional): Set of meteorite IDs that just entered the visible
+ * window (e.g. via year scrub forward). Their scale.y starts at 0 so the
+ * raf loop in App can animate them rising from the surface (fall-in).
  */
-function buildHeroCones(heroes, palette) {
+function buildHeroCones(heroes, palette, newIds = null) {
   // truncated cone primitive — wide base, narrow top
   const geom = new THREE.CylinderGeometry(
     0.45,  /* radiusTop */
@@ -158,7 +162,11 @@ function buildHeroCones(heroes, palette) {
     const height = massToPillarHeight(d.mass)
     const radius = CLASS_RADIUS[d.klass] ?? 0.24
 
-    tmpScale.set(radius, height, radius)
+    // If this hero just entered the visible window, start at scale.y=0 so
+    // the raf loop can animate it rising. Otherwise, full final scale.
+    const isNew = newIds && newIds.has(d.id)
+    const yScale = isNew ? 0 : height
+    tmpScale.set(radius, yScale, radius)
     tmpMat.compose(pos, tmpQuat, tmpScale)
     mesh.setMatrixAt(i, tmpMat)
 
@@ -685,12 +693,34 @@ export default function App() {
   const [fwm, setFwm] = useState('check')
   const [fwmIdx, setFwmIdx] = useState(0) // 0..6 = current witness, 7 = closing
 
-  // resize
+  // resize — also force-rerun once after mount (iframe initial size may be stale)
   useEffect(() => {
     const onResize = () => setSize({ w: window.innerWidth, h: window.innerHeight })
     window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
+    // initial double-tap: layout may settle right after first paint
+    const t1 = setTimeout(onResize, 100)
+    const t2 = setTimeout(onResize, 600)
+    return () => {
+      window.removeEventListener('resize', onResize)
+      clearTimeout(t1); clearTimeout(t2)
+    }
   }, [])
+
+  // Whenever size changes, also poke the underlying three-globe renderer to
+  // re-run setSize. This is belt-and-braces — react-globe.gl SHOULD do this
+  // via its width/height props but in iframe contexts it sometimes lags.
+  useEffect(() => {
+    if (!globeRef.current) return
+    const renderer = globeRef.current.renderer?.()
+    const camera = globeRef.current.camera?.()
+    if (renderer && size.w && size.h) {
+      renderer.setSize(size.w, size.h, false)
+      if (camera && camera.isPerspectiveCamera) {
+        camera.aspect = size.w / size.h
+        camera.updateProjectionMatrix()
+      }
+    }
+  }, [size, meteorites])
 
   // First Witness Mode — check localStorage on mount
   useEffect(() => {
@@ -901,6 +931,48 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [heroPoints, paletteName, fwm])
 
+  // Hero fall-in animation state. When new meteorites enter via year-scrub-forward,
+  // their cones start at scale.y=0 and rise to full height over 700ms (ease-out
+  // cubic). Mid sprites also flash a brief impact-ring (TODO: 3.A.3).
+  const heroMeshRef = useRef(null)
+  const fallAnimRef = useRef({ prevIds: new Set(), animating: new Set(), startTime: 0, heroes: [] })
+
+  // Single raf loop drives all in-progress fall animations.
+  useEffect(() => {
+    let raf = 0
+    const Y_AXIS = new THREE.Vector3(0, 1, 0)
+    const tmpMat = new THREE.Matrix4()
+    const tmpQuat = new THREE.Quaternion()
+    const tmpScale = new THREE.Vector3()
+    const FALL_MS = 700
+
+    const tick = () => {
+      raf = requestAnimationFrame(tick)
+      const anim = fallAnimRef.current
+      const mesh = heroMeshRef.current
+      if (!mesh || anim.animating.size === 0) return
+      const elapsed = performance.now() - anim.startTime
+      const t = Math.min(1, elapsed / FALL_MS)
+      const eased = 1 - Math.pow(1 - t, 3) // ease-out cubic
+      for (let i = 0; i < anim.heroes.length; i++) {
+        const d = anim.heroes[i]
+        if (!anim.animating.has(d.id)) continue
+        const pos = polar2cart(d.lat, d.lng, 0.005)
+        const dir = pos.clone().normalize()
+        tmpQuat.setFromUnitVectors(Y_AXIS, dir)
+        const finalHeight = massToPillarHeight(d.mass)
+        const radius = CLASS_RADIUS[d.klass] ?? 0.24
+        tmpScale.set(radius, finalHeight * eased, radius)
+        tmpMat.compose(pos, tmpQuat, tmpScale)
+        mesh.setMatrixAt(i, tmpMat)
+      }
+      mesh.instanceMatrix.needsUpdate = true
+      if (t >= 1) anim.animating = new Set() // animation complete
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [])
+
   // Singleton sprite glow texture
   const glowTexture = useMemo(() => makeGlowTexture(), [])
 
@@ -939,16 +1011,45 @@ export default function App() {
     bloomRef.current.strength = palette.bloomEnabled === false ? 0 : 0.55
   }, [paletteName, palette])
 
-  // Apply globeTint via globeMaterial().color (multiplies the texture)
+  // Apply globeTint via globeMaterial().color — but during FWM the globe
+  // should fade up FROM black, not snap on. Producer's spec.
+  // - fwm 'active'  → globe is dark (#0a0810), invisible behind the overlay
+  // - fwm 'closing' → smoothly lerp from dark → palette tint over the closing window
+  // - fwm 'done'    → palette tint, no animation
   useEffect(() => {
     if (!globeRef.current) return
     const mat = globeRef.current.globeMaterial?.()
     if (!mat) return
-    if (palette.globeTint) {
-      mat.color = new THREE.Color(palette.globeTint)
+    const targetColor = new THREE.Color(palette.globeTint || '#FFFFFF')
+    const darkColor = new THREE.Color('#0a0810')
+
+    if (fwm === 'active') {
+      mat.color = darkColor.clone()
       mat.needsUpdate = true
+      return
     }
-  }, [paletteName, palette, meteorites])
+    if (fwm !== 'closing') {
+      // 'check' or 'done' — apply final tint immediately
+      mat.color = targetColor
+      mat.needsUpdate = true
+      return
+    }
+    // 'closing' — animate dark → target across closing+fade window.
+    const start = performance.now()
+    const duration = FWM_TIMING.closingMs + FWM_TIMING.fadeMs
+    let raf = 0
+    const tick = () => {
+      const elapsed = performance.now() - start
+      const t = Math.min(1, elapsed / duration)
+      // ease-out cubic — most of the brighten happens late (revelation feel)
+      const eased = 1 - Math.pow(1 - t, 3)
+      mat.color = darkColor.clone().lerp(targetColor, eased)
+      mat.needsUpdate = true
+      if (t < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [paletteName, palette, meteorites, fwm])
 
   // controls
   useEffect(() => {
@@ -1202,11 +1303,13 @@ export default function App() {
   const ringsData = useMemo(() => {
     if (fwm === 'active' || fwm === 'closing') {
       const upto = fwm === 'closing' ? FIRST_WITNESSES.length : Math.min(fwmIdx + 1, FIRST_WITNESSES.length)
-      return FIRST_WITNESSES.slice(0, upto).map((w) => ({
+      return FIRST_WITNESSES.slice(0, upto).map((w, i) => ({
         lat: w.lat, lng: w.lng,
-        maxR: 4.5,
-        propagationSpeed: 1.2, // outward = arrival witness ring
-        repeatPeriod: 2200,
+        maxR: 5.5,
+        propagationSpeed: 1.4, // outward = arrival witness ring
+        repeatPeriod: 2400,
+        // The most-recent witness ring pulses brighter
+        intensity: i === upto - 1 ? 1.0 : 0.55,
       }))
     }
     if (selected) {
@@ -1215,6 +1318,7 @@ export default function App() {
         maxR: 6,
         propagationSpeed: -3,
         repeatPeriod: 2400,
+        intensity: 1.0,
       }]
     }
     return []
@@ -1279,7 +1383,28 @@ export default function App() {
           /* HERO TIER: top-50 mass plinth cones (custom InstancedMesh).
              4-dim encoding: height=mass, radius=class, color=fall, bloom=auto */
           customLayerData={heroConeData}
-          customThreeObject={(d) => buildHeroCones(d.heroes, palette)}
+          customThreeObject={(d) => {
+            // Detect newly-entered heroes (year scrub forward) and mark them
+            // for the fall-in raf loop.
+            const prev = fallAnimRef.current.prevIds
+            const newIds = new Set()
+            for (const h of d.heroes) {
+              if (!prev.has(h.id)) newIds.add(h.id)
+            }
+            const isFirstBuild = prev.size === 0
+            // Only animate if this isn't the first build and there are new heroes.
+            const animateIds = (isFirstBuild || newIds.size === 0) ? null : newIds
+            if (animateIds) {
+              fallAnimRef.current.animating = new Set(animateIds)
+              fallAnimRef.current.startTime = performance.now()
+              fallAnimRef.current.heroes = d.heroes
+            }
+            fallAnimRef.current.prevIds = new Set(d.heroes.map((h) => h.id))
+
+            const mesh = buildHeroCones(d.heroes, palette, animateIds)
+            heroMeshRef.current = mesh
+            return mesh
+          }}
           customThreeObjectUpdate={() => {}}
           /* MID TIER: ~32k specimens, split into 2 sets by era.
              Designer spec: era-as-color subtle (pre-1950 deeper, post brighter). */
@@ -1300,7 +1425,15 @@ export default function App() {
              TODO: investigate hexBin alternative or reduce bandwidth. */
           /* Rings layer — inward-propagating "impact ripple" on selected */
           ringsData={ringsData}
-          ringColor={() => (t) => palette.ringColor.replace('ALPHA', String(1 - t))}
+          ringColor={(d) => (t) => {
+            // During FWM, override palette color → amber-cream so marks pop on black globe.
+            // Multiply by intensity so older rings are dimmer than the newest.
+            const base = (fwm === 'active' || fwm === 'closing')
+              ? 'rgba(248, 230, 175, ALPHA)' /* warm cream amber */
+              : palette.ringColor
+            const intensity = (d && d.intensity) || 1.0
+            return base.replace('ALPHA', String((1 - t) * intensity))
+          }}
           ringMaxRadius="maxR"
           ringPropagationSpeed="propagationSpeed"
           ringRepeatPeriod="repeatPeriod"
