@@ -422,214 +422,6 @@ const PALETTES = {
   },
 }
 
-/* Old demo palettes kept commented for reference — uncomment to compare */
-const _DEMO_PALETTES_DEPRECATED = {
-  current: {
-    name: 'Current',
-    sub: '2024 amber-on-navy (baseline)',
-    globeImageUrl: GLOBE_TEX.blackMarble,
-    bumpImageUrl: GLOBE_TEX.bumpmap,
-    globeTint: '#FFFFFF', /* multiply tint on globe texture; white = no tint */
-    css: {
-      '--ink': '#0B0E18',
-      '--ink-soft': '#11141F',
-      '--paper': '#E8E1CD',
-      '--paper-dim': '#A39B85',
-      '--paper-faint': '#5D5747',
-      '--amber': '#D4A85F',
-      '--amber-soft': '#6B532C',
-      '--rule': '#2A2D38',
-      '--cool-accent': '#D4A85F', /* same as amber — no counterweight */
-      '--rust-accent': '#9B6F4A',
-      '--bg-near': '#131725',
-      '--bg-far': '#07090F',
-    },
-    atmosphereColor: '#d4a85f',
-    coastlineCap: 'rgba(212, 168, 95, 0.05)',
-    coastlineSide: 'rgba(212, 168, 95, 0.10)',
-    coastlineStroke: 'rgba(212, 168, 95, 0.42)',
-    heroColor: '#F4ECD8',
-    particleColor: '#d4a85f',
-    ringColor: 'rgba(212, 168, 95, ALPHA)',
-  },
-
-  aprime: {
-    name: 'A-prime · Sepia on Ink',
-    sub: 'Walnut + indigo + rust on dark (compromise)',
-    globeImageUrl: GLOBE_TEX.blackMarble,
-    bumpImageUrl: GLOBE_TEX.bumpmap,
-    globeTint: '#A87440', /* warm walnut tint over Black Marble */
-    css: {
-      '--ink': '#0E0C08',          /* warmer near-black, walnut shadow */
-      '--ink-soft': '#15120B',
-      '--paper': '#EDE3CC',         /* vellum cream */
-      '--paper-dim': '#B0A382',
-      '--paper-faint': '#5F5638',
-      '--amber': '#A87440',         /* desaturated rust amber, not honey */
-      '--amber-soft': '#5C3F23',
-      '--rule': '#2B2618',
-      '--cool-accent': '#3D547F',  /* indigo counterweight (Cellarius) */
-      '--rust-accent': '#8B3A1F',  /* iron-gall oxidation */
-      '--bg-near': '#15120B',
-      '--bg-far': '#080604',
-    },
-    atmosphereColor: '#A87440',
-    coastlineCap: 'rgba(168, 116, 64, 0.06)',
-    coastlineSide: 'rgba(168, 116, 64, 0.12)',
-    coastlineStroke: 'rgba(168, 116, 64, 0.50)',
-    heroColor: '#EDE3CC',
-    particleColor: '#A87440',
-    ringColor: 'rgba(61, 84, 127, ALPHA)', /* indigo impact ring */
-  },
-
-  pureSepia: {
-    name: 'A · Pure Sepia',
-    sub: 'Royal Society 1830 folio (vellum bg)',
-    globeImageUrl: GLOBE_TEX.day,
-    bumpImageUrl: GLOBE_TEX.bumpmap,
-    globeTint: '#8B6F3E', /* sepia tint — turns blue oceans brown-amber */
-    css: {
-      '--ink': '#1B1408',
-      '--ink-soft': '#3A2E1C',
-      '--paper': '#1B1408',         /* invert: dark text on light */
-      '--paper-dim': '#4A3E25',
-      '--paper-faint': '#7A6A4D',
-      '--amber': '#8B3A1F',          /* rust */
-      '--amber-soft': '#5C2715',
-      '--rule': '#C9B98F',
-      '--cool-accent': '#2A3A5C',    /* engraving indigo */
-      '--rust-accent': '#8B3A1F',
-      '--bg-near': '#EDE3CC',         /* vellum */
-      '--bg-far': '#D8CBA8',
-    },
-    atmosphereColor: '#8B3A1F',
-    coastlineCap: 'rgba(27, 20, 8, 0.06)',
-    coastlineSide: 'rgba(27, 20, 8, 0.10)',
-    coastlineStroke: 'rgba(27, 20, 8, 0.52)',
-    heroColor: '#1B1408',
-    particleColor: '#8B3A1F',
-    ringColor: 'rgba(42, 58, 92, ALPHA)',
-  },
-
-  observatory: {
-    name: 'B · Deep Sky Observatory',
-    sub: 'Mauna Kea 2 AM (cool void + ember)',
-    globeImageUrl: GLOBE_TEX.blackMarble,
-    bumpImageUrl: GLOBE_TEX.bumpmap,
-    globeTint: '#5FA8B8', /* cool cyan-steel tint */
-    css: {
-      '--ink': '#050812',
-      '--ink-soft': '#0C1226',
-      '--paper': '#DCE4F2',
-      '--paper-dim': '#8A95AB',
-      '--paper-faint': '#4D556A',
-      '--amber': '#C24A2C',          /* ember warning lamp */
-      '--amber-soft': '#7A2F1C',
-      '--rule': '#1E2840',
-      '--cool-accent': '#5FA8B8',    /* copper-cyan rim */
-      '--rust-accent': '#C24A2C',
-      '--bg-near': '#0C1226',
-      '--bg-far': '#050812',
-    },
-    atmosphereColor: '#5FA8B8',
-    coastlineCap: 'rgba(95, 168, 184, 0.04)',
-    coastlineSide: 'rgba(95, 168, 184, 0.10)',
-    coastlineStroke: 'rgba(95, 168, 184, 0.40)',
-    heroColor: '#DCE4F2',
-    particleColor: '#C24A2C',
-    ringColor: 'rgba(95, 168, 184, ALPHA)',
-  },
-
-  drawer: {
-    name: 'C · Specimen Drawer',
-    sub: 'Field Museum cabinet at noon (parchment bg, dark cutout)',
-    globeImageUrl: GLOBE_TEX.blackMarble, /* dark cutout per spec */
-    bumpImageUrl: GLOBE_TEX.bumpmap,
-    globeTint: '#4A4030', /* darken to read as cutout against parchment */
-    css: {
-      '--ink': '#14110A',
-      '--ink-soft': '#2E2818',
-      '--paper': '#14110A',
-      '--paper-dim': '#5A4F38',
-      '--paper-faint': '#8C7E5C',
-      '--amber': '#B89455',          /* gilt frame */
-      '--amber-soft': '#7A622E',
-      '--rule': '#C9BC9A',
-      '--cool-accent': '#1F3A4A',    /* meteorite-glass teal */
-      '--rust-accent': '#6B4226',
-      '--bg-near': '#E4DAC0',         /* parchment */
-      '--bg-far': '#C9BC9A',
-    },
-    atmosphereColor: '#B89455',
-    coastlineCap: 'rgba(184, 148, 85, 0.10)',
-    coastlineSide: 'rgba(184, 148, 85, 0.18)',
-    coastlineStroke: 'rgba(184, 148, 85, 0.65)',
-    heroColor: '#14110A',
-    particleColor: '#1F3A4A',
-    ringColor: 'rgba(31, 58, 74, ALPHA)',
-  },
-
-  /* ★ NEW — built per the 3 senior expert convergence ★ */
-  daylight: {
-    name: 'D · Archival Daylight',
-    sub: 'Real Earth + cream paper + iron-gall ink (NO BLOOM)',
-    globeImageUrl: GLOBE_TEX.day,
-    bumpImageUrl: GLOBE_TEX.bumpmap,
-    globeTint: '#FFFFFF', /* no tint — true natural Earth */
-    bloomEnabled: false,
-    css: {
-      '--ink': '#1A1410',
-      '--ink-soft': '#3D3833',
-      '--paper': '#1A1410',          /* dark text on cream substrate */
-      '--paper-dim': '#5C5547',
-      '--paper-faint': '#8A7D6E',
-      '--amber': '#9C2B1F',          /* cinnabar wax-seal red */
-      '--amber-soft': '#5C1610',
-      '--rule': '#C9BFA9',
-      '--cool-accent': '#3D5C7A',
-      '--rust-accent': '#9C2B1F',
-      '--bg-near': '#F2EDE3',         /* cold-pressed paper */
-      '--bg-far': '#DCE3E5',         /* sky-paper edge */
-    },
-    atmosphereColor: '#a8b8c4',     /* desaturated blue-grey rim */
-    coastlineCap: 'rgba(0,0,0,0)',  /* hide — texture has them */
-    coastlineSide: 'rgba(0,0,0,0)',
-    coastlineStroke: 'rgba(0,0,0,0)',
-    heroColor: '#1A1410',           /* iron-gall ink */
-    particleColor: '#3D3833',       /* graphite */
-    ringColor: 'rgba(156, 43, 31, ALPHA)', /* cinnabar */
-  },
-
-  cyanotype: {
-    name: 'E · Cyanotype Survey',
-    sub: 'Anna Atkins 1843 — Prussian + paper-white',
-    globeImageUrl: GLOBE_TEX.day,
-    bumpImageUrl: GLOBE_TEX.bumpmap,
-    globeTint: '#3D6FA0', /* Prussian — saturates oceans, dims poles */
-    bloomEnabled: true,
-    css: {
-      '--ink': '#0D2438',
-      '--ink-soft': '#1A3955',
-      '--paper': '#FAFAF5',
-      '--paper-dim': '#C4D0DD',
-      '--paper-faint': '#7A92A8',
-      '--amber': '#FAFAF5',         /* paper-white as primary */
-      '--amber-soft': '#C4D0DD',
-      '--rule': '#2A4A6A',
-      '--cool-accent': '#1A3955',
-      '--rust-accent': '#FAFAF5',
-      '--bg-near': '#1A3955',
-      '--bg-far': '#0D2438',
-    },
-    atmosphereColor: '#5C7BA0',
-    coastlineCap: 'rgba(250, 250, 245, 0.04)',
-    coastlineSide: 'rgba(250, 250, 245, 0.08)',
-    coastlineStroke: 'rgba(250, 250, 245, 0.55)',
-    heroColor: '#FAFAF5',
-    particleColor: '#FAFAF5',
-    ringColor: 'rgba(250, 250, 245, ALPHA)',
-  },
-}
 
 const FWM_TIMING = {
   metaMs: 1000,      // typewriter for "Year · Place · Name"
@@ -921,18 +713,20 @@ export default function App() {
     return [sampled]
   }, [visiblePoints])
 
-  // Particle sets for the mid tier — split by era so we can color them differently.
-  // pre-1950 → archival amber (deep, patina'd) · post-1950 → fresh amber.
-  // three-globe Particles layer accepts a list of sets; each set has its own color.
+  // Particle sets for the mid tier — split by class so legend is honest.
+  // P0.2 fix: previously split by era → all sprites amber → legend's 6 class
+  // colors lied. Now grouped by CLASS_ORDER (rarest first → rendered last so
+  // they sit on top under bloom). Era encoding is now carried by hero arrival
+  // chronology + the time slider, not sprite color.
   const particleSets = useMemo(() => {
     if (!midPoints.length) return [[]]
-    const preEra = []
-    const postEra = []
+    const buckets = Object.fromEntries(CLASS_ORDER.map((k) => [k, []]))
     for (const m of midPoints) {
-      if (m.year < 1950) preEra.push(m)
-      else postEra.push(m)
+      const k = m.klass && buckets[m.klass] ? m.klass : 'ordinary-chondrite'
+      buckets[k].push(m)
     }
-    return [preEra, postEra]
+    // Render order: most-common first (back), rarest last (front under bloom).
+    return [...CLASS_ORDER].reverse().map((k) => buckets[k])
   }, [midPoints])
 
   // Hero cones (custom layer) — replaces built-in pointsData for hero tier.
@@ -1350,7 +1144,24 @@ export default function App() {
     return () => window.removeEventListener('mousemove', move)
   }, [Boolean(hover)])
 
-  const toggleClass = (k) => setActiveClasses((a) => ({ ...a, [k]: !a[k] }))
+  const toggleClass = (k, e) => {
+    // Shift-click → solo (isolate this class). Plain click → toggle.
+    // Solo-when-already-soloed → restore all (so Shift-click is reversible).
+    if (e && e.shiftKey) {
+      setActiveClasses((a) => {
+        const allActive = CLASS_ORDER.every((c) => a[c])
+        const onlyThis = CLASS_ORDER.every((c) => a[c] === (c === k))
+        if (onlyThis) {
+          return Object.fromEntries(CLASS_ORDER.map((c) => [c, true]))
+        }
+        return Object.fromEntries(CLASS_ORDER.map((c) => [c, c === k]))
+      })
+      return
+    }
+    setActiveClasses((a) => ({ ...a, [k]: !a[k] }))
+  }
+  const setAllClasses = (val) =>
+    setActiveClasses(Object.fromEntries(CLASS_ORDER.map((k) => [k, val])))
 
   // Rings layer: during FWM = accumulated witness marks; otherwise = selected
   // impact ripple PLUS any transient hero-arrival flash rings.
@@ -1490,26 +1301,48 @@ export default function App() {
               forceFlashTick((n) => n + 1)
             }
 
+            // Dispose previous mesh's GPU resources before swapping.
+            // three-globe rebuilds the custom layer on every customLayerData
+            // change; without this, geometry+material accumulate in GPU memory.
+            const prevMesh = heroMeshRef.current
+            if (prevMesh) {
+              if (prevMesh.geometry) prevMesh.geometry.dispose()
+              if (prevMesh.material) {
+                if (Array.isArray(prevMesh.material)) {
+                  prevMesh.material.forEach((m) => m.dispose())
+                } else {
+                  prevMesh.material.dispose()
+                }
+              }
+            }
+
             const mesh = buildHeroCones(d.heroes, palette, animateIds)
             heroMeshRef.current = mesh
             return mesh
           }}
           customThreeObjectUpdate={() => {}}
-          /* MID TIER: ~32k specimens, split into 2 sets by era.
-             Designer spec: era-as-color subtle (pre-1950 deeper, post brighter). */
+          /* MID TIER: ~32k specimens, grouped by class (P0.2). Order is
+             reverse-CLASS_ORDER → commons first (back), rarest last (front).
+             Color matches the legend swatches, so what user sees == what
+             legend says. */
           particlesData={fwmActive ? [[]] : particleSets}
           particlesList={(d) => d}
           particleLat="lat"
           particleLng="lng"
           particleAltitude={(d) => Math.max(0.005, massToAltitude(d.mass) * MAX_ALT_R * 0.4)}
-          particlesSize={(set, idx) => idx === 0 ? 1.6 : 1.95}
+          particlesSize={(set, idx) => {
+            // Rarer classes (rendered later, larger idx) get a small size bump
+            // so they read through the chondrite carpet under bloom.
+            const klass = [...CLASS_ORDER].reverse()[idx]
+            const rare = klass === 'planetary' || klass === 'stony-iron'
+            return rare ? 2.2 : 1.7
+          }}
           particlesSizeAttenuation={true}
           particlesTexture={glowTexture}
-          particlesColor={(set, idx) =>
-            idx === 0
-              ? '#B8864A'                  /* pre-1950: deep archival amber */
-              : (palette.particleColor || PARTICLE_AMBER) /* post-1950: palette's */
-          }
+          particlesColor={(set, idx) => {
+            const klass = [...CLASS_ORDER].reverse()[idx]
+            return CLASS_COLORS[klass] || (palette.particleColor || PARTICLE_AMBER)
+          }}
           /* BASE TIER: heatmap temporarily disabled — KDE perf issue at 32k.
              TODO: investigate hexBin alternative or reduce bandwidth. */
           /* Rings layer — inward-propagating "impact ripple" on selected */
@@ -1616,15 +1449,23 @@ export default function App() {
           <div
             key={k}
             className={`row ${activeClasses[k] ? 'active' : 'dim'}`}
-            onClick={() => toggleClass(k)}
+            onClick={(e) => toggleClass(k, e)}
             role="button"
-            title={CLASS_LABELS[k]}
+            title={`${CLASS_LABELS[k]}\nClick: toggle · Shift+Click: solo`}
           >
             <span className="count num">{classCounts[k].toLocaleString()}</span>
             {CLASS_LABELS_SHORT[k]}
             <span className="swatch" style={{ color: POINT_COLORS[k], background: POINT_COLORS[k] }} />
           </div>
         ))}
+        <div className="legend-actions">
+          <button
+            className="legend-action"
+            onClick={() => setAllClasses(true)}
+            title="Show all classes"
+          >All</button>
+          <span className="legend-hint">Shift+Click row to solo</span>
+        </div>
       </aside>
 
       <footer className="timeline">
@@ -1719,10 +1560,37 @@ export default function App() {
   )
 }
 
+function witnessLineFor(d) {
+  // Three states (P0.3 — Producer's "who knew?" thesis line):
+  //   Fell   → witnessed
+  //   Found, modern recovery (year ≥ 1900)        → recovered, no witness
+  //   Found, ancient or undated (year < 1900 / —) → prehistoric, no witness
+  if (d.fall === 'Fell') {
+    return {
+      eyebrow: 'Witnessed',
+      body: `Observed falling. Someone on the ground in ${d.year || 'this year'} saw a star arrive.`,
+    }
+  }
+  const y = d.year
+  if (y && y >= 1900) {
+    return {
+      eyebrow: 'No witness',
+      body: `Recovered ${y}. The fall itself went unseen — found later, in the field.`,
+    }
+  }
+  return {
+    eyebrow: 'No witness',
+    body: y
+      ? `Recovered ${y}. The fall predates any record of observation.`
+      : 'Recovery date unknown. The fall predates any record of observation.',
+  }
+}
+
 function SpecimenDossier({ d, onClose }) {
   const mbdUrl = `https://www.lpi.usra.edu/meteor/metbull.php?sea=${encodeURIComponent(d.name)}&sfor=names&stype=contains`
   const massComp = massComparison(d.mass)
   const provenance = regionFor(d) // E: bind region context to specimen click
+  const witness = witnessLineFor(d)
   return (
     <div className="dossier" role="dialog" aria-label="Specimen dossier">
       <button className="dossier-close" onClick={onClose} aria-label="Close">
@@ -1747,6 +1615,11 @@ function SpecimenDossier({ d, onClose }) {
           {Math.abs(d.lng).toFixed(3)}° {d.lng >= 0 ? 'E' : 'W'}
         </dd>
       </dl>
+      <div className="dossier-rule" />
+      <div className={`dossier-witness ${d.fall === 'Fell' ? 'witnessed' : 'unwitnessed'}`}>
+        <div className="dossier-witness-eyebrow">{witness.eyebrow}</div>
+        <div className="dossier-witness-body">{witness.body}</div>
+      </div>
       {provenance && (
         <>
           <div className="dossier-rule" />
@@ -1834,10 +1707,20 @@ function FirstWitnessOverlay({ stage, idx, onSkip }) {
   const isClosing = stage === 'closing'
   const witness = !isClosing && idx < FIRST_WITNESSES.length ? FIRST_WITNESSES[idx] : null
 
+  const total = FIRST_WITNESSES.length
+  const stepNum = isClosing ? total : Math.min(idx + 1, total)
+  const progressPct = (stepNum / total) * 100
+
   return (
     <div className={`fwm ${isClosing ? 'closing' : ''}`}>
+      <div className="fwm-progress" aria-hidden="true">
+        <div className="fwm-progress-bar" style={{ width: `${progressPct}%` }} />
+      </div>
       <div className="fwm-skip">
-        <button onClick={onSkip}>Skip Intro · Esc</button>
+        <button onClick={onSkip} aria-label="Skip intro">
+          <span className="fwm-skip-label">Skip Intro</span>
+          <span className="fwm-skip-key">Esc</span>
+        </button>
       </div>
 
       <div className="fwm-frame">

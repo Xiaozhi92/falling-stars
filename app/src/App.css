@@ -309,6 +309,37 @@
   box-shadow: 0 0 6px currentColor;
 }
 
+.legend-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule);
+}
+.legend-action {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  border: 1px solid var(--rule);
+  padding: 4px 8px;
+  background: transparent;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+.legend-action:hover {
+  color: var(--paper);
+  border-color: var(--paper);
+}
+.legend-hint {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--paper-faint);
+  text-transform: uppercase;
+}
+
 .legend .row.dim .swatch {
   opacity: 0.25;
   box-shadow: none;
@@ -753,6 +784,36 @@
   padding-top: 4px;
 }
 
+/* ------- DOSSIER WITNESS LINE (P0.3) ------- */
+.dossier-witness {
+  display: block;
+  padding-left: 10px;
+  border-left: 2px solid var(--rule);
+}
+.dossier-witness.witnessed {
+  border-left-color: var(--amber);
+}
+.dossier-witness-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  color: var(--paper-faint);
+}
+.dossier-witness.witnessed .dossier-witness-eyebrow {
+  color: var(--amber);
+}
+.dossier-witness-body {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--paper);
+  line-height: 1.45;
+}
+.dossier-witness.unwitnessed .dossier-witness-body {
+  color: var(--paper-dim);
+}
+
 /* ------- DOSSIER PROVENANCE (option E) ------- */
 .dossier-provenance {
   display: block;
@@ -801,26 +862,57 @@
   background: rgba(7, 9, 15, 0.78);
 }
 
+.fwm-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(232, 225, 205, 0.08);
+  z-index: 51;
+}
+.fwm-progress-bar {
+  height: 100%;
+  background: var(--amber);
+  transition: width 0.6s var(--ease);
+  box-shadow: 0 0 8px rgba(212, 168, 95, 0.4);
+}
+
 .fwm-skip {
   position: absolute;
-  top: 32px;
-  right: 40px;
+  top: 24px;
+  right: 32px;
+  z-index: 52;
 }
 
 .fwm-skip button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.24em;
+  font-size: 11px;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--paper-faint);
-  border: 1px solid var(--rule);
-  padding: 8px 14px;
-  background: transparent;
-  transition: color 0.15s ease-out, border-color 0.15s ease-out;
+  color: var(--paper);
+  border: 1px solid rgba(232, 225, 205, 0.45);
+  padding: 10px 16px;
+  background: rgba(11, 14, 24, 0.55);
+  backdrop-filter: blur(4px);
+  transition: color 0.15s ease-out, border-color 0.15s ease-out, background 0.15s ease-out;
 }
 .fwm-skip button:hover {
-  color: var(--paper);
-  border-color: var(--paper);
+  color: var(--ink);
+  background: var(--amber);
+  border-color: var(--amber);
+}
+.fwm-skip-key {
+  display: inline-block;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  padding: 2px 6px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  opacity: 0.85;
 }
 
 .fwm-frame {
