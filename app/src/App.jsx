@@ -635,6 +635,7 @@ const PALETTES = {
       '--rust-accent': '#C24A2C',
       '--bg-near': '#0C1226',
       '--bg-far': '#050812',
+      '--surface-1': 'rgba(11, 14, 24, 0.78)',
     },
     atmosphereColor: '#5FA8B8',
     coastlineCap: 'rgba(95, 168, 184, 0.04)',
@@ -672,8 +673,8 @@ const PALETTES = {
       '--rust-accent': '#8B3A1F',
       '--bg-near': '#1F2A4A',
       '--bg-far': '#0F1530',
-      /* Folio surface: deep plate-blue with subtle gilt rim */
-      '--surface-1': 'rgba(15, 21, 48, 0.82)',
+      /* Folio surface: deep plate-blue (matches its bg, distinct from Sextant). */
+      '--surface-1': 'rgba(15, 21, 48, 0.85)',
     },
     atmosphereColor: '#C4A24A',     /* gilt halo around globe */
     coastlineCap: 'rgba(196, 162, 74, 0.07)',
@@ -710,6 +711,12 @@ export default function App() {
 
   const [meteorites, setMeteorites] = useState(null)
   const [countries, setCountries] = useState(null)
+  // User-toggled border layer. Default off — feedback was that Atlas reads
+  // cleaner without country lines + Sextant/Folio's coastlines are baked
+  // into the texture/atmosphere already.
+  const [showBorders, setShowBorders] = useState(() => {
+    try { return localStorage.getItem('borders') === '1' } catch { return false }
+  })
   const [size, setSize] = useState({ w: window.innerWidth, h: window.innerHeight })
   const [yearRange, setYearRange] = useState([1700, 2013])
   const [year, setYear] = useState(2013)
@@ -832,7 +839,7 @@ export default function App() {
 
   // load coastlines
   useEffect(() => {
-    fetch('/countries.geojson')
+    fetch(`${import.meta.env.BASE_URL}countries.geojson`)
       .then((r) => r.json())
       .then((g) => setCountries(g.features))
       .catch(() => setCountries([]))
@@ -1286,6 +1293,12 @@ export default function App() {
   // Pixel-space nearest-meteorite — Engineer's recommendation.
   // Project each visible specimen to screen-space, find within ~14px radius.
   // Scales naturally with zoom; matches what the user sees.
+  //
+  // Bug fix: previously only checked frustum depth, which let points on the
+  // FAR SIDE of the globe (antipodal) win on screen-distance — clicking a
+  // dense cluster could grab a back-side point through the sphere. Now also
+  // require the point to be on the camera-facing hemisphere (positive dot
+  // with camera ray from globe center).
   const findNearestPixel = (clientX, clientY, radiusPx = 14) => {
     if (!meteorites || !globeRef.current) return null
     const renderer = globeRef.current.renderer?.()
@@ -1295,6 +1308,7 @@ export default function App() {
     const px = clientX - rect.left
     const py = clientY - rect.top
     const v = new THREE.Vector3()
+    const camPos = camera.position
     let best = null
     let bestD2 = radiusPx * radiusPx
     for (const m of meteorites) {
@@ -1308,8 +1322,11 @@ export default function App() {
         100 * Math.cos(phi),
         100 * Math.sin(phi) * Math.sin(theta)
       )
+      // Hemisphere check — back side of globe is occluded, ignore those points.
+      // Threshold 0 = exact equator-from-camera; +small bias kills limb wobble.
+      if (v.dot(camPos) < 0) continue
       v.project(camera)
-      if (v.z > 1) continue // behind the globe / outside frustum
+      if (v.z > 1) continue // behind frustum
       const sx = ((v.x + 1) / 2) * rect.width
       const sy = ((1 - v.y) / 2) * rect.height
       const d2 = (sx - px) ** 2 + (sy - py) ** 2
@@ -1615,7 +1632,7 @@ export default function App() {
           bumpImageUrl={palette.bumpImageUrl}
           onGlobeClick={onGlobeClickHandler}
           /* etched amber coastlines (hidden during FWM for clean dark globe) */
-          polygonsData={fwmActive ? [] : (countries || [])}
+          polygonsData={(fwmActive || !showBorders) ? [] : (countries || [])}
           polygonAltitude={0.006}
           polygonCapColor={() => palette.coastlineCap}
           polygonSideColor={() => palette.coastlineSide}
@@ -1817,6 +1834,17 @@ export default function App() {
             onClick={() => setAllClasses(true)}
             title="Show all classes"
           >All</button>
+          <button
+            className={`legend-action ${showBorders ? 'on' : ''}`}
+            onClick={() => {
+              setShowBorders((b) => {
+                const next = !b
+                try { localStorage.setItem('borders', next ? '1' : '0') } catch {}
+                return next
+              })
+            }}
+            title="Toggle country borders"
+          >Borders</button>
           <span className="legend-hint">Shift+Click row to solo</span>
         </div>
       </aside>

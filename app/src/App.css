@@ -358,6 +358,11 @@
   color: var(--paper);
   border-color: var(--paper);
 }
+.legend-action.on {
+  color: var(--ink);
+  background: var(--amber);
+  border-color: var(--amber);
+}
 .legend-hint {
   font-size: 9px;
   letter-spacing: 0.16em;
@@ -395,16 +400,26 @@
   align-items: baseline;
   margin-bottom: 10px;
   color: var(--paper-dim);
+  position: relative; /* anchor the absolutely-positioned .now */
 }
 
+/* User feedback: centered № YEAR overlapped Antarctica's specimen cluster.
+   Moved to the right of the line, just above where "2025" appears so it
+   doesn't sit on top of the south-pole pile. */
 .timeline .line .now {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  margin-bottom: 4px;
   color: var(--amber);
   font-family: var(--display);
   font-style: italic;
-  font-size: 22px;
+  font-size: 18px;
   letter-spacing: 0.04em;
   text-transform: none;
   font-feature-settings: "tnum" 1, "lnum" 1;
+  opacity: 0.85;
+  pointer-events: none;
 }
 
 .timeline .track-row {
