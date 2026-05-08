@@ -655,7 +655,9 @@ const PALETTES = {
        dim mass like distant constellations. */
     globeImageUrl: GLOBE_TEX.blackMarble,
     bumpImageUrl: GLOBE_TEX.bumpmap,
-    globeTint: '#3B4A78', // deep cellarius indigo tint over black marble
+    /* Was #3B4A78 — too dark, swallowed continents. Lifted to a brighter
+       cellarius indigo so plate field reads + continents stay visible. */
+    globeTint: '#6A78B0',
     bloomEnabled: true,
     css: {
       '--ink': '#1F2A4A',           /* plate field — deep indigo */

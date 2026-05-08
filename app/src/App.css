@@ -528,6 +528,10 @@
 }
 
 /* ------- DOSSIER (sticky sidebar) ------- */
+/* Dossier is a "museum drawer" — fixed dark surface regardless of page
+   palette. Text colors inside use hard-coded cream tones, not --paper, so
+   Atlas (which inverts --paper to dark) doesn't make them invisible.
+   The local --paper override below cascades into all .dossier-* children. */
 .dossier {
   position: absolute;
   top: 0;
@@ -535,15 +539,22 @@
   height: 100%;
   width: 380px;
   background: rgba(11, 14, 24, 0.94);
-  border-right: 1px solid var(--amber-soft);
+  border-right: 1px solid #6b532c;
   padding: 96px 32px 32px;
   z-index: 20;
   font-family: var(--mono);
   letter-spacing: 0.04em;
-  color: var(--paper-dim);
+  color: #a39b85;
   backdrop-filter: blur(8px) saturate(110%);
   animation: dossier-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
   overflow-y: auto;
+  /* Force cream/amber tokens locally so Atlas's dark --paper doesn't bleed in. */
+  --paper: #E8E1CD;
+  --paper-dim: #A39B85;
+  --paper-faint: #5D5747;
+  --amber: #D4A85F;
+  --amber-soft: #6B532C;
+  --rule: #2A2D38;
 }
 
 @keyframes dossier-in {
@@ -872,17 +883,26 @@
   line-height: 1.4;
 }
 
-/* ------- FIRST WITNESS MODE ------- */
+/* ------- FIRST WITNESS MODE -------
+   FWM is a fixed dark proscenium regardless of page palette. Force cream
+   tokens locally so Atlas's dark --paper doesn't render text-on-text. */
 .fwm {
   position: absolute;
   inset: 0;
   z-index: 50;
-  background: rgba(7, 9, 15, 0.92);
+  background: rgba(7, 9, 15, 0.94);
   display: flex;
   align-items: center;
   justify-content: center;
   pointer-events: auto;
   transition: opacity 1.6s ease-out, background 2s ease-out;
+  --paper: #E8E1CD;
+  --paper-dim: #A39B85;
+  --paper-faint: #5D5747;
+  --amber: #D4A85F;
+  --amber-soft: #6B532C;
+  --rule: #2A2D38;
+  color: #E8E1CD;
 }
 
 .fwm.closing {
