@@ -319,14 +319,22 @@ const POINTS_FRAG = `
   varying vec3 vColor;
   varying float vAlpha;
   uniform sampler2D uMap;
+  uniform float uOutline;     // 0 = none (dark mode), 0.6+ = visible (Atlas)
+  uniform vec3 uOutlineColor; // outline tint
   void main() {
     vec4 tex = texture2D(uMap, gl_PointCoord);
     if (tex.a < 0.5) discard; // alphaTest — sharp dot, no blob
-    gl_FragColor = vec4(vColor, tex.a * vAlpha);
+    // Distance from sprite center, 0..1 across the visible disc.
+    vec2 ctr = gl_PointCoord - 0.5;
+    float d = length(ctr) * 2.0;
+    // Outline ring lives just inside the alphaTest cut. Smooth band.
+    float ring = smoothstep(0.36, 0.48, d) * (1.0 - smoothstep(0.48, 0.55, d));
+    vec3 col = mix(vColor, uOutlineColor, ring * uOutline);
+    gl_FragColor = vec4(col, tex.a * vAlpha);
   }
 `
 
-function buildPointsMesh(meteorites, sharpDotTex, massPctMap) {
+function buildPointsMesh(meteorites, sharpDotTex, massPctMap, isLight = false) {
   const positions = new Float32Array(meteorites.length * 3)
   const colors = new Float32Array(meteorites.length * 3)
   const sizes = new Float32Array(meteorites.length)
@@ -362,7 +370,13 @@ function buildPointsMesh(meteorites, sharpDotTex, massPctMap) {
   geom.setAttribute('aAlpha', new THREE.BufferAttribute(alphas, 1))
 
   const mat = new THREE.ShaderMaterial({
-    uniforms: { uMap: { value: sharpDotTex } },
+    uniforms: {
+      uMap: { value: sharpDotTex },
+      // Atlas (light bg) needs a dark outline so colored points read on
+      // the bright daylight texture; dark modes leave outline off.
+      uOutline: { value: isLight ? 0.9 : 0.0 },
+      uOutlineColor: { value: new THREE.Color(isLight ? '#1A1410' : '#000000') },
+    },
     vertexShader: POINTS_VERT,
     fragmentShader: POINTS_FRAG,
     transparent: true,
@@ -1016,6 +1030,15 @@ export default function App() {
   // Plan F: Points layer — single THREE.Points, sharp PNG sprite, no breathing.
   const pointsMeshRef = useRef(null)
   const sharpDotTex = useMemo(() => makeSharpDotTexture(), [])
+  // Sync outline uniform with palette — Atlas uses dark outline so points
+  // read on the bright daylight texture; dark modes leave it off.
+  useEffect(() => {
+    const m = pointsMeshRef.current
+    if (!m || !m.material?.uniforms) return
+    const isLight = palette.bloomEnabled === false
+    m.material.uniforms.uOutline.value = isLight ? 0.85 : 0.0
+    m.material.uniforms.uOutlineColor.value.set(isLight ? '#1A1410' : '#000000')
+  }, [paletteName, palette])
   // eq_hist mass percentile lookup (Plan F+ #2) — built once when catalog loads.
   const massPctMap = useMemo(() => {
     if (!meteorites) return null
@@ -1402,39 +1425,59 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meteorites, year, activeClasses])
 
-  // B (zoom-triggered region banner): track which region the camera is currently
-  // looking at when zoomed close. Updates a state for the floating banner.
+  // B (zoom-triggered region banner): show only after the user dwells on a
+  // region for 700ms while zoomed in. User feedback: previous version flashed
+  // the banner during drag-through, never giving time to read it.
   const [zoomRegion, setZoomRegion] = useState(null)
   useEffect(() => {
     if (!globeRef.current) return
     const ctrl = globeRef.current.controls?.()
     if (!ctrl) return
-    const tick = () => {
+    let pendingRegion = null
+    let showTimer = 0
+    let hideTimer = 0
+    const compute = () => {
       const camera = globeRef.current?.camera?.()
-      if (!camera) return
-      const dist = camera.position.length() // distance from globe center
-      // Only show banner when zoomed in (camera < 280 from globe center)
-      if (dist > 280) {
-        setZoomRegion((cur) => (cur ? null : cur))
-        return
-      }
-      // What lat/lng is the camera looking at? Approximate via inverted camera
-      // direction projected onto unit sphere.
-      const forward = new THREE.Vector3()
-      camera.getWorldDirection(forward)
-      const lookAt = camera.position.clone().add(forward.multiplyScalar(camera.position.length())).normalize()
-      const lat = (Math.PI / 2 - Math.acos(lookAt.y)) * (180 / Math.PI)
-      const lng = (Math.atan2(lookAt.z, lookAt.x) * 180) / Math.PI - 90
+      if (!camera) return null
+      const dist = camera.position.length()
+      if (dist > 260) return null // too far — no region focus
+      // Use camera POSITION normalized as the "look-at" surface point
+      // (orbit controls keep the camera pointed at globe center, so its
+      // own position direction is what's centered on screen).
+      const lookAt = camera.position.clone().normalize()
+      const lat = Math.asin(lookAt.y) * (180 / Math.PI)
+      const lng = Math.atan2(lookAt.z, -lookAt.x) * (180 / Math.PI)
       const lngNorm = ((lng + 540) % 360) - 180
-      const region = REGIONS.find((r) => {
+      // Tighter region match — was 30°, now 15° so banner doesn't fire
+      // when user is just panning past.
+      return REGIONS.find((r) => {
         const dLat = lat - r.center.lat
         const dLng = lngNorm - r.center.lng
-        return dLat * dLat + dLng * dLng < 30 * 30
-      })
-      setZoomRegion((cur) => (cur && region && cur.id === region.id ? cur : region || null))
+        return dLat * dLat + dLng * dLng < 15 * 15
+      }) || null
+    }
+    const tick = () => {
+      const region = compute()
+      if (region && (!pendingRegion || pendingRegion.id !== region.id)) {
+        // Entering a new region — wait for dwell before showing.
+        pendingRegion = region
+        clearTimeout(showTimer)
+        clearTimeout(hideTimer)
+        showTimer = setTimeout(() => setZoomRegion(region), 700)
+      } else if (!region && pendingRegion) {
+        // Left the region — wait before hiding so brief drag-out doesn't flicker.
+        pendingRegion = null
+        clearTimeout(showTimer)
+        clearTimeout(hideTimer)
+        hideTimer = setTimeout(() => setZoomRegion(null), 1500)
+      }
     }
     ctrl.addEventListener('change', tick)
-    return () => ctrl.removeEventListener('change', tick)
+    return () => {
+      ctrl.removeEventListener('change', tick)
+      clearTimeout(showTimer)
+      clearTimeout(hideTimer)
+    }
   }, [meteorites])
 
   const openDossier = (d) => {
@@ -1649,7 +1692,7 @@ export default function App() {
                 if (prevMesh.geometry) prevMesh.geometry.dispose()
                 if (prevMesh.material) prevMesh.material.dispose()
               }
-              const mesh = buildPointsMesh(d.meteorites, sharpDotTex, massPctMap)
+              const mesh = buildPointsMesh(d.meteorites, sharpDotTex, massPctMap, palette.bloomEnabled === false)
               pointsMeshRef.current = mesh
               return mesh
             }

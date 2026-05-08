@@ -403,23 +403,14 @@
   position: relative; /* anchor the absolutely-positioned .now */
 }
 
-/* User feedback: centered № YEAR overlapped Antarctica's specimen cluster.
-   Moved to the right of the line, just above where "2025" appears so it
-   doesn't sit on top of the south-pole pile. */
 .timeline .line .now {
-  position: absolute;
-  right: 0;
-  bottom: 100%;
-  margin-bottom: 4px;
   color: var(--amber);
   font-family: var(--display);
   font-style: italic;
-  font-size: 18px;
+  font-size: 22px;
   letter-spacing: 0.04em;
   text-transform: none;
   font-feature-settings: "tnum" 1, "lnum" 1;
-  opacity: 0.85;
-  pointer-events: none;
 }
 
 .timeline .track-row {
@@ -722,18 +713,22 @@
 }
 
 /* ------- ZOOM BANNER (option B) ------- */
+/* Reposition: was top-right (collided with legend) → now top-center, well
+   above the globe equator. Also longer fade-in so it doesn't pop. */
 .zoom-banner {
   position: absolute;
-  top: 96px;
-  right: 40px;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 6;
-  max-width: 280px;
-  background: rgba(11, 14, 24, 0.78);
-  border-left: 1px solid var(--amber-soft);
-  padding: 12px 16px;
+  max-width: 360px;
+  text-align: center;
+  background: var(--surface-1, rgba(11, 14, 24, 0.78));
+  border-bottom: 1px solid var(--amber-soft);
+  padding: 12px 24px;
   backdrop-filter: blur(2px);
   font-family: var(--mono);
-  animation: zoom-banner-in 0.4s var(--ease);
+  animation: zoom-banner-in 0.7s var(--ease);
 }
 
 @keyframes zoom-banner-in {
