@@ -1291,8 +1291,11 @@ export default function App() {
     ctrl.autoRotateSpeed = 0.18
     ctrl.enableDamping = true
     ctrl.dampingFactor = 0.08
-    ctrl.minPolarAngle = Math.PI / 3.5
-    ctrl.maxPolarAngle = Math.PI - Math.PI / 3.5
+    // Was π/3.5 and π-π/3.5 → camera locked to mid-latitudes, polar specimens
+    // (ANSMET in Antarctica, top of catalog) literally unreachable. Allow
+    // free vertical rotation; tiny epsilon at the poles avoids gimbal flip.
+    ctrl.minPolarAngle = 0.04
+    ctrl.maxPolarAngle = Math.PI - 0.04
     ctrl.minDistance = 180
     ctrl.maxDistance = 500
     let resumeTimer = null
